@@ -61,3 +61,17 @@ def test_handoff_skips_companies_already_applied(tmp_path):
     db.log_application(con, rid, mk(3, "Beta"), "external", "redirects", 90)
     g = handoff.pending_jobs(con)
     assert [r["company"] for r in g["external"]] == ["Beta"]
+
+
+def test_corrected_job_is_not_reimported_from_old_excel_row(tmp_path):
+    con = db.connect(tmp_path / "t.db")
+    rid = db.start_run(con, False)
+    rowid = db.log_application(con, rid, mk(1, "Trigyn"), "applied", "")
+    xl = tmp_path / "Applied_Jobs.xlsx"
+    excel.export(con, xl)
+    con.execute("UPDATE applications SET status='external', reason='company site' WHERE id=?", (rowid,))   # corrected later
+    con.commit()
+    assert excel.ingest(con, xl) == 0
+    excel.export(con, xl)
+    assert con.execute("SELECT COUNT(*) c FROM applications WHERE status='applied'").fetchone()["c"] == 0
+    assert con.execute("SELECT COUNT(*) c FROM applications").fetchone()["c"] == 1

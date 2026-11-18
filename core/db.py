@@ -50,9 +50,13 @@ def end_run(con, run_id: int, cost_inr: float = 0.0, notes: str = ""):
 
 
 def already_handled(con, platform: str, job_id: str) -> bool:
-    """True if we already applied (or dry-ran / sent to manual) this job in any earlier run."""
+    """True if this job never needs another look: applied / company site / needs you / unconfirmed in an earlier run, or
+    the site itself showed 'Applied' for it (applied by hand, or by an earlier run whose success was not recognised).
+    Permanent: unlike a rule-based skip it does not depend on the skip rules."""
     r = con.execute(
-        "SELECT 1 FROM applications WHERE platform=? AND job_id=? AND status IN ('applied','external','needs_manual','unconfirmed')",
+        """SELECT 1 FROM applications WHERE platform=? AND job_id=? AND (
+             status IN ('applied','external','needs_manual','unconfirmed')
+             OR (status='skipped' AND (reason='already applied' OR reason LIKE 'already applied (%'))) LIMIT 1""",
         (platform, job_id)).fetchone()
     return r is not None
 

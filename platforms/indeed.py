@@ -126,6 +126,15 @@ def upload_profile_resume(page, pdf_path) -> bool:
         return False
 
 
+CONSENT_RX = re.compile(r"accurate|true and correct|agree|privacy|terms|consent|confirm|declare|acknowledge", re.I)
+MARKETING_RX = re.compile(r"newsletter|marketing|promotion|offers|updates?|alerts?|whatsapp|sms|text message|call me|contact me|subscribe", re.I)
+
+
+def is_consent_box(text: str) -> bool:
+    """A plain 'I confirm this is accurate / agree to the Privacy Policy' box. Never a marketing / opt-in box."""
+    return bool(CONSENT_RX.search(text or "")) and not MARKETING_RX.search(text or "")
+
+
 def _fill_step(ap) -> str | None:
     """Answer every empty field on this step from config.yaml. Returns a reason if one cannot be answered truthfully."""
     for f in ap.evaluate(FIELDS_JS):
@@ -162,8 +171,13 @@ def _fill_step(ap) -> str | None:
                     continue
                 return f"unanswerable question: {label[:80]} | options: {' / '.join(opts)[:120]}"
             ap.check(f"[data-ja='{f['idx'][i]}']", force=True)
-        elif f["kind"] == "checkbox" and not f["checked"] and not optional and len(f["opts"]) > 1:
-            return f"multi-choice question needs you: {label[:80]}"     # never tick boxes on your behalf
+        elif f["kind"] == "checkbox" and not f["checked"] and not optional:
+            from core.config import load_config
+            allowed = bool((load_config().get("preferences") or {}).get("consent_checkbox"))
+            if len(f["opts"]) == 1 and allowed and is_consent_box(f["opts"][0] + " " + label):
+                ap.check(f"[data-ja='{f['idx'][0]}']", force=True)        # saved preference: tick plain consent boxes
+            elif len(f["opts"]) > 1:
+                return f"multi-choice question needs you: {label[:80]}"
         human_sleep((0.5, 1.5))
     return None
 

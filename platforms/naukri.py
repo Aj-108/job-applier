@@ -80,6 +80,40 @@ def details(page, job: dict) -> dict:
     return job
 
 
+HISTORY_URL = "https://www.naukri.com/myapply/historypage"
+ENTRIES_JS = """() => [...document.querySelectorAll('.jdTitle')].map(t => ({title: t.innerText.trim(),
+  company: ((t.parentElement.parentElement.querySelector('.company') || {}).innerText || '').split('\\n')[0].trim()}))
+  .filter(e => e.title && e.company)"""
+
+
+def _history(page, tab: str) -> list[dict]:
+    """Application History > one filter tab, fully loaded (10 per load; 'loadMoreLnk' loads the next 10)."""
+    page.goto(HISTORY_URL, wait_until="domcontentloaded")
+    page.wait_for_selector(".jdTitle", timeout=20000)
+    human_sleep((2, 4))
+    check_blocked(page)
+    page.locator("li.filterComp", has_text=tab).click()
+    human_sleep((3, 4))
+    for _ in range(30):                                       # 10 per load: 300 applications is plenty
+        n = page.evaluate("() => document.querySelectorAll('.jdTitle').length")
+        if not page.evaluate("() => { const a = document.querySelector('.loadMoreLnk'); if (!a) return false; a.scrollIntoView(); a.click(); return true; }"):
+            break
+        human_sleep((3, 4))
+        if page.evaluate("() => document.querySelectorAll('.jdTitle').length") == n:
+            break
+    return page.evaluate(ENTRIES_JS)
+
+
+def applied_list(page) -> list[dict]:
+    """What Naukri says you applied to ON Naukri (My Naukri > Application History > 'Applies on Naukri'). Read-only."""
+    return _history(page, "Applies on Naukri")
+
+
+def external_list(page) -> list[dict]:
+    """Jobs Naukri files under 'Applies on External Site': a click on Apply there only redirects, it is NOT an application."""
+    return _history(page, "Applies on External Site")
+
+
 def upload_profile_resume(page, pdf_path) -> bool:
     """Replace the resume on your Naukri profile (Naukri cannot take a different file per application)."""
     page.goto("https://www.naukri.com/mnjuser/profile", wait_until="domcontentloaded")
@@ -139,7 +173,9 @@ def _chatbot(page) -> str | None:
     return "questionnaire too long"
 
 
-SUCCESS_RX = re.compile(r"applied successfully|successfully applied|application (has been )?(sent|submitted)|you have (already )?applied|applied to this job", re.I)
+# Naukri's real success banner (seen live): Applied to "Full Stack Developer"  /  Next step: Start your interview preparation...
+SUCCESS_RX = re.compile(r"applied successfully|successfully applied|application (has been )?(sent|submitted)|you have (already )?applied|"
+                        r"applied to this job|applied to\s+[\"\u201c\u2018']", re.I)
 
 
 def _applied(page) -> bool:

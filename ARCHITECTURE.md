@@ -225,3 +225,37 @@ Now (`platforms/instahyre.py`):
 - Block check: the "protected by reCAPTCHA" footer / invisible reCAPTCHA v3 badge on Indeed Apply is NOT a block
   (brand name stripped before the word check; badge iframes ignored). Real challenges are still caught.
 - Rules: Dynamics 365, AEM, Ruby/ROR blocked (Zoho allowed); "fresher" / "trainee" titles skipped (RULES_VERSION 3).
+- `db.already_handled()` also treats a job the site itself shows as "Applied" (status `skipped`, reason `already applied` /
+  `already applied (...)`) as handled for good, so it is not reopened every run. It does not depend on the rules
+  fingerprint, so a rules change does not trigger a re-check of these.
+
+## 16. Verifying against the site's own Applied list (2026-11-18)
+
+- Root cause of many "unconfirmed" Naukri jobs: the success banner is `Applied to "<title>"` (+ "Next step: Start your interview
+  preparation"); `SUCCESS_RX` now matches it.
+- `core/verify.py` + `python main.py verify [site] [--retry-missing]`: reads the site's own list (read-only) and settles the
+  tracker. Naukri (`platforms/naukri.py`): My Naukri > Application History (`/myapply/historypage`), filter tab
+  "Applies on Naukri" (`applied_list`) and "Applies on External Site" (`external_list`); entries = `.jdTitle` + `.company`,
+  10 per load, `a.loadMoreLnk` loads the next 10.
+  - on the Naukri tab -> `applied`; not listed anywhere -> stays `unconfirmed` (with `--retry-missing`: `failed`, retried next run)
+  - listed under the external-site tab -> `external` (an "Applied" banner there only meant a redirect), even if it was `applied`.
+  - company match: equal after `norm_company`, or one is the other plus words (`same_company`, shorter >= 6 chars).
+- Runs automatically after every real `main.py run` (`verify_after_run: [naukri]` in config.yaml); not on dry runs / Ctrl+C.
+  An empty or failed read never changes anything.
+- `excel.ingest()` now treats any job the tracker already knows (any status) as known, so a corrected job's old Excel row is
+  not re-imported as "added by hand".
+- Only Naukri has a reader so far; Instahyre / Indeed have none (they skip with a message).
+
+## 17. Saved preferences, cover letters, email applications (2026-11-18)
+
+- `config.yaml preferences:` (salary_unit_default, consent_checkbox, cover_letter_ai, email_applications) + `answers:` (workplace model,
+  shift -> "Yes"). `answers.pick_option()` matches "Yes" to "Yes, comfortable with Hybrid"; for relocate / commute questions it only picks
+  "planning to relocate" (the profile is Mohali-based: never "I can make the commute"). Indeed's `_fill_step` ticks a single plain consent
+  checkbox when `consent_checkbox` is on (`is_consent_box`: never marketing / alerts / WhatsApp).
+- `core/coverletter.py`: the AI agent writes the letter; `check()` rejects blocked / not-on-resume skills, numbers not backed by the resume,
+  placeholders and bad lengths. CLI: `python main.py coverletter --file letter.txt` (must print OK).
+- `core/mailer.py`: `python main.py email --job platform:id --to addr --letter-file f [--found-on URL] [--send]`. Free Gmail SMTP with an app
+  password from `.env` (SMTP_USER / SMTP_PASSWORD). Dry run unless `--send`; refuses bad / generic addresses, a company already applied to,
+  a failing letter and the daily cap (`email.max_per_day`); attaches the resume; marks the job applied ("by email to ...") and exports Excel;
+  every send is logged to `out/email_log.csv`. `python main.py email-test --send` style check: `python main.py email-test`.
+- The Antigravity / agent brief now prints the saved preferences, the cover-letter rules and the email procedure; CAPTCHA = skip.

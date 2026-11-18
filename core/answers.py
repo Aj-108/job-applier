@@ -22,6 +22,22 @@ def custom_answer(l: str, cfg: dict) -> str | None:
     return None
 
 
+def _ctc(l: str, v, cfg: dict) -> str | None:
+    """CTC in the unit the question names; a field with NO unit uses preferences.salary_unit_default (rupees | lpa | ask)."""
+    if v is None:
+        return None
+    if re.search(r"month", l):
+        return None                                   # monthly in-hand pay is not CTC / 12: do not guess
+    if re.search(r"lpa|lakh|lac", l):
+        return _fmt(v)
+    unit = ((cfg.get("preferences") or {}).get("salary_unit_default") or "rupees").lower()
+    if unit == "lpa":
+        return _fmt(v)
+    if unit == "rupees":
+        return _fmt(float(v) * 100000)
+    return None                                       # 'ask': never guess a unit
+
+
 def answer(label: str, kind: str = "text", cfg: dict | None = None) -> str | None:
     cfg = cfg or load_config()
     p = cfg["profile"]
@@ -41,13 +57,9 @@ def answer(label: str, kind: str = "text", cfg: dict | None = None) -> str | Non
         v = _num(p.get("notice_period_days"))
         return _fmt(v) if v is not None else None
     if re.search(r"current (ctc|salary|compensation)|present (ctc|salary)|current annual|last drawn|previous (ctc|salary)", l):
-        if re.search(r"month", l):
-            return None                             # monthly in-hand pay is not CTC / 12: do not guess
-        v = _num(p.get("current_ctc_lpa"))
-        return None if v is None else (_fmt(v) if re.search(r"lpa|lakh|lac", l) else _fmt(float(v) * 100000))
+        return _ctc(l, _num(p.get("current_ctc_lpa")), cfg)
     if re.search(r"expected (ctc|salary|compensation)|salary expectation|expected annual", l):
-        v = _num(p.get("expected_ctc_lpa"))
-        return None if v is None else (_fmt(v) if re.search(r"lpa|lakh|lac", l) else _fmt(float(v) * 100000))
+        return _ctc(l, _num(p.get("expected_ctc_lpa")), cfg)
     if re.search(r"years?.*experience|experience.*years?|how many years|yrs", l):
         skills = {k.lower(): v for k, v in p.get("skill_years", {}).items()}
         for k, v in sorted(skills.items(), key=lambda kv: -len(kv[0])):
@@ -114,6 +126,14 @@ def pick_option(question: str, options: list[str], cfg: dict | None = None) -> i
         return None
     if a.lower() in low:                                    # "Yes" / "No"
         return low.index(a.lower())
+    if a in ("Yes", "No"):                                  # "Yes, comfortable with Hybrid" / "Yes, I am planning to relocate"
+        starts = [i for i, o in enumerate(low) if re.match(re.escape(a.lower()) + r"\b", o)]
+        if a == "Yes" and re.search(r"relocat|commut", q):
+            # I live in Mohali: never claim "I can make the commute" to Delhi / Gurugram; relocating is what the profile says
+            reloc = [i for i in starts if "relocat" in low[i] and not re.search(r"assist|need|help|support", low[i])]
+            return reloc[0] if reloc else None
+        if starts:
+            return starts[0]
     try:
         v = float(a)
     except ValueError:

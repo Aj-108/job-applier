@@ -73,7 +73,9 @@ def _ts(r) -> float:
 def ingest(con, path: Path | None = None) -> int:
     """Load rows that exist in the Excel but not in the database (added by a browser agent or by hand)."""
     path = path or excel_path()
-    known_keys = {_key(r["platform"], r["job_id"]) for r in _applied_rows(con)}
+    # a row the TOOL wrote carries its key: if the tracker knows that job under ANY status (it may have been corrected to
+    # external / failed since), the tracker wins and the old Excel row must not come back as "added by hand"
+    known_keys = {_key(r["platform"], r["job_id"]) for r in con.execute("SELECT platform, job_id FROM applications")}
     known_pairs = {(norm_company(r["company"]), (r["title"] or "").lower().strip()) for r in _applied_rows(con)}
     added = 0
     for r in read_rows(path):
@@ -119,7 +121,7 @@ def export(con, path: Path | None = None) -> Path:
         dt = datetime.fromtimestamp(r["ts"])
         agent = "added via Excel" in (r["reason"] or "")
         src = (r["reason"] or "").split("by ", 1)[-1].split(":")[0].strip().title() if agent else "Tool"
-        via = "Company website (browser agent)" if agent else ("Naukri" if r["platform"] == "naukri" else
+        via = "Company website (browser agent)" if (agent or (r["reason"] or "").startswith("applied on the company site")) else ("Naukri" if r["platform"] == "naukri" else
               "Instahyre" if r["platform"] == "instahyre" else r["platform"].title())
         ws.append([i, dt.date(), dt.time().replace(microsecond=0), r["platform"], via, r["company"], r["title"], r["location"],
                    bucket(r["location"], r["remote"]), "Remote" if r["remote"] else "Onsite/Hybrid", r["exp_text"] or "",

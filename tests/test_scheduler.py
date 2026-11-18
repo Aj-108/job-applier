@@ -186,3 +186,41 @@ def test_parallel_platforms_share_one_application_per_company(monkeypatch, tmp_p
     same = [r for r in rows if r["company"] == "SameCo" and r["status"] == "applied"]
     assert len(same) == 1                                                              # never twice to one company
     assert con.execute("SELECT COUNT(*) c FROM applications WHERE status='queued'").fetchone()["c"] == 0
+
+
+def test_already_applied_on_site_is_not_reopened(monkeypatch, tmp_path):
+    jobs = [("1", "Full Stack Developer", "Acme", "Noida", "2-4 Yrs", JOBS[0][5]),
+            ("2", "React Developer", "Remo", "Noida", "2-4 Yrs", JOBS[3][5])]
+    m = fake_platform("naukri", jobs)
+    opened = []
+    real_details = m.details
+    m.details = lambda page, job: (opened.append(job["job_id"]), real_details(page, job))[1]
+    m.precheck = lambda page, job: ("skipped", "already applied (Naukri shows 'Applied')") if job["job_id"] == "1" else None
+    con = setup(monkeypatch, tmp_path, {"naukri": m})
+    scheduler.run(minutes=5, dry_run=False, only="naukri")
+    assert "1" in opened and con.execute("SELECT status FROM applications WHERE job_id='1'").fetchone()["status"] == "skipped"
+    opened.clear()
+    scheduler.run(minutes=5, dry_run=False, only="naukri")
+    assert opened == []                                            # job 1 is remembered for good, job 2 was applied
+    assert con.execute("SELECT COUNT(*) c FROM applications WHERE job_id='1'").fetchone()["c"] == 1
+    # the company-cap skip is a different reason and must not be mistaken for it
+    assert not db.already_handled(con, "naukri", "zzz")
+
+
+def test_verify_runs_after_a_real_run_only(monkeypatch, tmp_path):
+    from core import verify
+    m = fake_platform("naukri", [])
+    con = setup(monkeypatch, tmp_path, {"naukri": m})
+    db.log_application(con, db.start_run(con, False),
+                       {"platform": "naukri", "job_id": "9", "title": "X", "company": "Y", "location": "z", "remote": 0, "url": "u", "exp_text": ""},
+                       "unconfirmed", "?")
+    called = []
+    monkeypatch.setattr(verify, "run_verify", lambda c, names, **kw: called.append(names) or [])
+    scheduler.run(minutes=5, dry_run=True, only="naukri")
+    assert called == []                                            # a dry run clicks nothing: nothing to settle
+    scheduler.run(minutes=5, dry_run=False, only="naukri")
+    assert called == [["naukri"]]
+    cfg = cc.load_config(); cfg["verify_after_run"] = []
+    monkeypatch.setattr(scheduler, "load_config", lambda: cfg)
+    scheduler.run(minutes=5, dry_run=False, only="naukri")
+    assert called == [["naukri"]]                                  # switched off in config.yaml

@@ -42,10 +42,29 @@ platforms:
 # false = one after another, using the per-platform minutes above.
 parallel: true
 
+# After every real run, settle "unconfirmed" jobs from these sites' own Applied jobs lists (read-only). [] = off.
+verify_after_run: [naukri]
+
+# Saved preferences (asked once, used for every form: Naukri / Indeed questions and company-site forms)
+preferences:
+  salary_unit_default: rupees     # a salary field with NO unit: rupees (780000) | lpa (7.8) | ask (skip the job)
+  consent_checkbox: true          # tick required accuracy / privacy-policy / terms boxes (never marketing / newsletter / WhatsApp opt-ins)
+  cover_letter_ai: true           # write a cover letter when a form or email needs one (facts + job description only, see ARCHITECTURE)
+  email_applications: true        # apply by email when a company's only route is an email address (python main.py email ...)
+
+email:
+  max_per_day: 15                 # application emails per day
+
 # Your own answers to application questions the tool cannot answer from the profile below.
 # `python main.py questions` lists the questions that sent jobs to needs_manual. Each entry: a regex that matches the
 # question (case-insensitive) and the TRUE answer. Only write answers that are true for you - they are submitted as-is.
-answers: []
+answers:
+  - match: "own (a )?laptop|personal laptop|do you have.*laptop"
+    answer: "Yes"
+  - match: "workplace model|work model|work mode|comfortable.*(onsite|on-site|hybrid|remote|work from office)"
+    answer: "Yes"                  # any workplace model is fine (change to your own preference)
+  - match: "(available|comfortable|ok|okay|fine|willing).*(shift|night|timing|rotational)|shift.*(available|comfortable)"
+    answer: "Yes"                  # any shift is fine (change to your own preference)
 #  - match: "join immediately|immediate joiner|joining within"
 #    answer: "No"
 #  - match: "comfortable .*(onsite|on-site|work from office)"

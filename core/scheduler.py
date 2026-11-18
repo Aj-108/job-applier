@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from . import db, report, excel
+from . import db, report, excel, verify
 from .config import load_config, resume_file, rules_fingerprint
 from .matcher import evaluate, prescreen
 from platforms.base import session, browser_host, Blocked
@@ -250,6 +250,15 @@ def run(minutes=None, dry_run=False, only=None, cap=None):
                           f"{pc['max_apply']} applications ===")
                     one(name, deadline, False)
                     carry = max(0.0, deadline - time.time())
+            # after the run: settle 'unconfirmed' jobs from the site's own Applied list (read-only; skipped on dry runs and
+            # Ctrl+C). The browser is still up, so this is just one more tab per site.
+            vnames = [n for n in cfg.get("verify_after_run", ["naukri"]) if n in names]
+            if vnames and not dry_run and not stop.is_set():
+                print(f"\n=== VERIFY ({', '.join(n.upper() for n in vnames)}): checking the site's Applied jobs list ===")
+                try:
+                    verify.run_verify(con, vnames)
+                except Exception as e:
+                    notes.append(f"verify after run failed: {type(e).__name__}: {e}")
     except KeyboardInterrupt:
         notes.append("interrupted by user")
     finally:

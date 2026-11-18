@@ -174,6 +174,77 @@ def cmd_rescore(a):
         print(f"  {v:5}  {k}")
 
 
+def cmd_verify(a):
+    """Settle 'unconfirmed' applications by reading each site's own Applied jobs list (read-only: nothing is clicked)."""
+    from core import db, verify, excel
+    from platforms.base import browser_host
+    con = db.connect()
+    names = [a.platform] if a.platform else ["naukri", "instahyre", "indeed"]
+    if not any(verify.needs_verify(con, n) for n in names):
+        print("Nothing unconfirmed or recently applied - nothing to verify.")
+        return
+    with browser_host():
+        results = verify.run_verify(con, names, retry_missing=a.retry_missing)
+    for res in results:
+        print(f"\n{res['platform']}: the site lists {res['listed']} applied jobs")
+        for r in res["confirmed"]:
+            print(f"   confirmed    {r['title']} @ {r['company']}")
+        for r in res["to_external"]:
+            print(f"   company site {r['title']} @ {r['company']}   (moved to the Antigravity list)")
+        for r in res["other_title"]:
+            print(f"   other title  {r['title']} @ {r['company']}   (left unconfirmed)")
+        for r in res["missing"]:
+            print(f"   NOT LISTED   {r['title']} @ {r['company']}   " + ("(reset: will be retried)" if a.retry_missing else "(left unconfirmed)"))
+    try:
+        excel.export(con)
+    except Exception as e:
+        print(f"could not update Excel: {e}")
+
+
+def cmd_coverletter(a):
+    """Check a cover letter / email body the agent wrote: nothing is used unless this prints OK."""
+    from core import coverletter
+    text = Path(a.file).read_text()
+    problems = coverletter.check(text)
+    print(f"{len(text.split())} words")
+    if problems:
+        print("NOT OK:\n  - " + "\n  - ".join(problems))
+        sys.exit(1)
+    print("OK")
+
+
+def cmd_email(a):
+    """Apply by email. Without --send it only checks everything and shows what would go out."""
+    from core import db, mailer
+    res = mailer.send_application(db.connect(), a.job, a.to, Path(a.letter_file).read_text(), subject=a.subject,
+                                  found_on=a.found_on or "", send=a.send)
+    if not res["ok"]:
+        print("NOT SENT:\n  - " + "\n  - ".join(res["problems"]))
+        sys.exit(1)
+    print(f"{'SENT' if res['sent'] else 'dry run OK (add --send to send)'}  to {a.to}\n  subject: {res['subject']}")
+    if res["sent"]:
+        from core import excel
+        try:
+            excel.export(db.connect())
+        except Exception as e:
+            print(f"could not update Excel: {e}")
+
+
+def cmd_email_test(a):
+    """Send one test mail to yourself to prove the SMTP login works."""
+    import smtplib
+    from core import mailer
+    from core.config import load_config
+    st = mailer.smtp_settings()
+    if not (st["user"] and st["password"]):
+        sys.exit("Set SMTP_USER and SMTP_PASSWORD in .env first (see .env.example).")
+    msg = mailer.build_message(st["user"], "job-applier test mail", "This is a test from job-applier. If you can read this, "
+                               "sending works. Nothing was sent to anyone else.", load_config(), None)
+    with smtplib.SMTP(st["host"], st["port"], timeout=30) as s:
+        s.starttls(); s.login(st["user"], st["password"]); s.send_message(msg)
+    print(f"Test mail sent to {st['user']} - check that inbox.")
+
+
 def cmd_questions(a):
     """Questions that sent jobs to needs_manual, most frequent first, as ready-to-fill config.yaml `answers:` entries."""
     import re
@@ -273,6 +344,18 @@ def main():
     h.set_defaults(f=cmd_handoff)
     i = sub.add_parser("import-results", help="bring the agent's results.csv back into the tracker")
     i.add_argument("file", nargs="?"); i.set_defaults(f=cmd_import)
+    v = sub.add_parser("verify", help="settle 'unconfirmed' jobs from each site's own Applied jobs list (read-only)")
+    v.add_argument("platform", nargs="?", choices=["naukri", "instahyre", "indeed"])
+    v.add_argument("--retry-missing", action="store_true", help="jobs NOT on the Applied list are reset so the next run retries them")
+    v.set_defaults(f=cmd_verify)
+    cl = sub.add_parser("coverletter", help="check a cover letter / email body against the resume facts")
+    cl.add_argument("--file", required=True); cl.set_defaults(f=cmd_coverletter)
+    em = sub.add_parser("email", help="apply by email to an address found on the company's own site (dry run unless --send)")
+    em.add_argument("--job", required=True, help="platform:job_id, e.g. naukri:290426505797")
+    em.add_argument("--to", required=True); em.add_argument("--letter-file", required=True)
+    em.add_argument("--subject"); em.add_argument("--found-on", help="URL of the page where the address was found")
+    em.add_argument("--send", action="store_true"); em.set_defaults(f=cmd_email)
+    sub.add_parser("email-test", help="send one test mail to yourself (checks the SMTP login)").set_defaults(f=cmd_email_test)
     qq = sub.add_parser("questions", help="list the questions that sent jobs to needs_manual (to fill `answers:`)")
     qq.add_argument("--top", type=int, default=30); qq.set_defaults(f=cmd_questions)
     rs = sub.add_parser("rescore", help="re-judge earlier skipped jobs with the current rules (no browser)")

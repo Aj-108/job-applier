@@ -140,3 +140,11 @@ def test_last_drawn_salary_and_full_stack_years():
     assert answer("What was your last drawn salary?", cfg=cfg) == "780000"
     assert answer("Last drawn monthly salary?", cfg=cfg) is None
     assert answer("How many years of experience do you have in Full Stack?", cfg=cfg) == "2.8"
+
+
+def test_naukri_success_banner_is_recognised():
+    from platforms.naukri import SUCCESS_RX
+    assert SUCCESS_RX.search('Search jobs here 7 2 Applied to "Full Stack Developer" Send Me Jobs Like This Next step')
+    assert SUCCESS_RX.search("Applied to “MERN Stack Developer”")
+    assert not SUCCESS_RX.search("Shopify Developer Vayuz Technologies 3.186 Reviews 3 - 8 years Not Disclosed Gurugram Send me jobs like this")
+    assert not SUCCESS_RX.search("Candidates who applied to similar roles also viewed")

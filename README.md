@@ -60,6 +60,11 @@ All platforms run **at the same time** (`parallel: true`): one Chrome, one tab p
 the whole run, up to each site's `max_apply`. With `parallel: false` they run one after another (Naukri 35 min,
 Instahyre 10, Indeed 15; minutes one platform does not use go to the next). `--only <site>` always runs just that site.
 
+**Unconfirmed jobs**: after every real run the tool reads Naukri's own "Application History" and settles any job whose success
+message it could not read (`verify_after_run` in `config.yaml`). Run it by hand any time with `python main.py verify naukri`
+(add `--retry-missing` to retry jobs Naukri does not list as applied). Company-site jobs Naukri files under "external site" move
+to the Antigravity list.
+
 **Questions the tool cannot answer**: `python main.py questions` lists the questions that sent jobs to `needs_manual`.
 Add TRUE answers to `config.yaml` under `answers:` (a regex for the question + the answer); the next runs use them.
 At the end of each platform the terminal prints a **funnel** (cards seen, skipped from the card, opened, skipped for fit,

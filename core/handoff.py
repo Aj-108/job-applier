@@ -5,7 +5,7 @@ import json
 import shutil
 import time
 from pathlib import Path
-from . import db, excel
+from . import coverletter, db, excel
 from .companies import norm_company
 from .config import OUT, load_config, load_skills, resume_file, never_claim
 from .resume_writer import to_pdf
@@ -97,6 +97,24 @@ def _facts(cfg) -> str:
         "- Links: github.com/Aj-108 , linkedin.com/in/archit108"])
 
 
+def _prefs(cfg) -> str:
+    pr, a = cfg.get("preferences") or {}, cfg.get("answers") or []
+    unit = {"rupees": "annual, in full rupees (current 780000 / expected 1200000 style)", "lpa": "annual, in LPA", "ask": "do not guess: stop"}
+    lines = [f"- Salary field with NO unit: {unit.get(str(pr.get('salary_unit_default', 'rupees')).lower(), 'stop')}. If it names a unit (LPA, lakh, "
+             f"month) follow it; a MONTHLY field -> stop (needs_user).",
+             f"- Required consent / accuracy / privacy-policy / terms checkbox: {'tick it' if pr.get('consent_checkbox') else 'do NOT tick; needs_user'} "
+             f"(never marketing, newsletter, WhatsApp or SMS opt-ins).",
+             f"- Cover letter: {'write it yourself (rules below)' if pr.get('cover_letter_ai') else 'needs_user'}.",
+             f"- Email applications: {'allowed (rules below)' if pr.get('email_applications') else 'not allowed; needs_user'}.",
+             "- Workplace model (onsite / hybrid / remote): any is fine -> answer Yes / comfortable (pick Hybrid if you must choose one).",
+             "- Shift (day / night / US hours / rotational): any is fine -> answer Yes.",
+             "- Relocation / commute to Delhi NCR: I live in Mohali. Say I am willing to RELOCATE; never say I can commute.",
+             "- CAPTCHA anywhere: skip the job."]
+    for item in a:
+        lines.append(f"- Question matching /{item.get('match')}/ -> \"{item.get('answer')}\"")
+    return "\n".join(lines)
+
+
 def build(con, limit: int = 15, questions: bool = False) -> Path:
     """Write the brief for a browser agent. limit = jobs per brief (best fit first; the brief itself says max 15 per
     session - run it again after `import-results` for the next batch). questions=True also lists the jobs that stopped
@@ -142,13 +160,17 @@ Complete them for me, carefully and honestly.
 **Resume - use ONLY this file, never edit or rewrite it:** `{main_resume}` (or `{dest_pdf}`)
 Do not generate, tailor or upload any other version of my resume.
 
+## Saved preferences (asked once - use them, do not ask again)
+{_prefs(cfg)}
+
 ## Rules - read before starting
 1. **Truth only.** Use only the facts above. Never invent experience, skills, employers, dates, numbers or certificates.
-2. **Not covered = stop.** If a form asks something the facts do not answer (a new yes/no, a salary field in a different unit, an essay,
-   a skill not listed above, "years with X" for a tech I do not have), do NOT guess. Stop that job, write the exact question in the
+2. **Not covered = stop.** If a form asks something the facts and saved preferences do not answer (a new yes/no, a skill not listed
+   above, "years with X" for a tech I do not have), do NOT guess. (Cover letters are NOT a stop: see rule 10. Salary fields with no unit,
+   workplace model, shift and plain consent boxes are covered by the saved preferences.) Stop that job, write the exact question in the
    `notes` column of results.csv, and set status `needs_user`.
 3. **Never claim skills I do not have.** These are blocked for me: {', '.join(never_claim(sk)[:24])}, ... If a job's MAIN requirement is one of them, skip it (status `skipped`).
-4. **Logins, OTP, CAPTCHA, passkeys:** do not try to get around them. If a site needs an account to be created or a login, set status `needs_user`
+4. **CAPTCHA, OTP, passkeys:** skip the job (status `skipped`, note "captcha"); do not try to get around them. **Logins:** do not try to get around them. If a site needs an account to be created or a login, set status `needs_user`
    with the note "needs account/login" and move on (I will tell you if creating accounts is allowed).
 5. **Do not touch** my Naukri / LinkedIn / Instahyre / Indeed profile, resume, settings or messages. Do not message recruiters.
    **Never open linkedin.com, never log in to LinkedIn and never use "Apply with LinkedIn" / "Easy Apply"** - LinkedIn bans automated
@@ -160,6 +182,20 @@ Do not generate, tailor or upload any other version of my resume.
 8. **Pace:** a few minutes per application, maximum 15 in one session. Never run several applications in parallel.
 9. **Every job you successfully submit goes into the Excel file** (next section) the moment you submit it. Every job you do NOT submit
    (`needs_user`, `skipped`, `failed`) goes into `results.csv` in this folder instead.
+10. **Cover letter needed** (a required field, or an email application): write it yourself, see "Cover letters" below.
+11. **Email-only jobs** (the company's own page shows just an address): apply with `python main.py email ...`, see "Applying by email" below.
+12. **Never open or click anything marketing**: no newsletter, WhatsApp, SMS or "keep me updated" boxes.
+
+## Cover letters
+{coverletter.guidelines(cfg)}
+
+## Applying by email (only when the job's own company page gives just an address)
+1. Use an address printed on the company's OWN careers / job page (careers@, hr@, jobs@, recruitment@, career@), never a guessed one.
+2. Write the letter to a text file, check it: `python main.py coverletter --file letter.txt` (must print OK).
+3. Dry run: `python main.py email --job <platform>:<job_id> --to <address> --letter-file letter.txt --found-on <page url>`
+4. Send: the same command plus `--send`. It attaches the resume, applies the per-company and per-day limits, records the job as applied
+   and updates the Excel itself - do NOT add that job to the Excel by hand.
+5. If it says NOT SENT, fix the reason it prints; never work around it.
 
 ## The Excel file - ALWAYS write applied jobs here
 File: `{excel.excel_path()}`   (sheet **Applied**; it lists every job applied to, by the script and by you)
