@@ -5,7 +5,7 @@ import threading
 import time
 import traceback
 from collections import Counter
-from . import db, report, excel, verify
+from . import db, report, excel, verify, sheets
 from .config import load_config, resume_file, rules_fingerprint
 from .matcher import evaluate, prescreen
 from platforms.base import session, browser_host, Blocked
@@ -264,6 +264,11 @@ def run(minutes=None, dry_run=False, only=None, cap=None):
     finally:
         db.finalize_queued(con, run_id)
         _sync_excel(con, write=True)
+        if sheets.configured(cfg):
+            try:
+                sheets.sync(con, cfg)
+            except Exception as e:
+                notes.append(f"Google Sheet sync failed: {type(e).__name__}: {e}")
         db.end_run(con, run_id, state["cost"], " | ".join(notes))
         g = report.build(con, run_id)
         print(report.terminal_summary(g))

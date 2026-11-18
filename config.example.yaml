@@ -45,6 +45,18 @@ parallel: true
 # After every real run, settle "unconfirmed" jobs from these sites' own Applied jobs lists (read-only). [] = off.
 verify_after_run: [naukri]
 
+# Google Sheet mirror of Applied_Jobs.xlsx: one tab per day + an "All Applied" master tab. Off by default.
+# Setup (one time, free): console.cloud.google.com -> new project -> enable "Google Sheets API" -> Credentials ->
+# Create Credentials -> Service Account -> Keys -> Add key (JSON); save that file here as service_account_file (it is
+# a credential: never commit it - .gitignore already excludes service-account*.json). Create a Google Sheet, open its
+# Share dialog and add the service account's email (ends ...iam.gserviceaccount.com) as Editor. sheet_id is the long
+# id in the Sheet's URL: docs.google.com/spreadsheets/d/<sheet_id>/edit
+google_sheet:
+  enabled: false
+  sheet_id: ""
+  service_account_file: service-account.json
+  master_tab: "All Applied"
+
 # Saved preferences (asked once, used for every form: Naukri / Indeed questions and company-site forms)
 preferences:
   salary_unit_default: rupees     # a salary field with NO unit: rupees (780000) | lpa (7.8) | ask (skip the job)

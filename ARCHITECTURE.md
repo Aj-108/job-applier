@@ -259,3 +259,19 @@ Now (`platforms/instahyre.py`):
   a failing letter and the daily cap (`email.max_per_day`); attaches the resume; marks the job applied ("by email to ...") and exports Excel;
   every send is logged to `out/email_log.csv`. `python main.py email-test --send` style check: `python main.py email-test`.
 - The Antigravity / agent brief now prints the saved preferences, the cover-letter rules and the email procedure; CAPTCHA = skip.
+
+
+## 18. Google Sheet mirror (2026-11-19)
+
+- `core/sheets.py`: `gspread` + a service account (no interactive OAuth). `excel.row_values(r)` is shared between
+  `excel.export()` and `sheets._write_tab()` so the two exports can never drift apart.
+- One tab per calendar day (`YYYY-MM-DD`, from each row's `ts`), rewritten fully each sync - no incremental
+  dedup needed since the day's rows in the DB are the whole truth for that day. **Today's tab is always rebuilt;
+  an earlier day's tab is written once and then left alone** (a "frozen daily log"). A missing earlier day
+  (e.g. the Sheet was only turned on later) is backfilled on the next sync.
+- One "All Applied" master tab (`google_sheet.master_tab`), always a full rebuild from `_applied_rows(con)` -
+  same content as `Applied_Jobs.xlsx`.
+- `sheets.configured(cfg)` gates everything: off unless `enabled: true` + `sheet_id` + `service_account_file`
+  are all set. `scheduler.run()` calls `sheets.sync()` at the very end of a real run (not dry runs), inside a
+  try/except that only adds a NOTE - a Sheets outage never breaks a run. Manual: `python main.py sync-sheet`.
+- Tests (`tests/test_sheets.py`) mock the gspread client/worksheet; nothing touches the network in CI.

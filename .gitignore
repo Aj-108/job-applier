@@ -2,6 +2,7 @@
 .env
 .browser/
 .lo_profile/
+service-account*.json
 # environment / caches
 .venv/
 __pycache__/

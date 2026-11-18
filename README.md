@@ -65,6 +65,26 @@ message it could not read (`verify_after_run` in `config.yaml`). Run it by hand 
 (add `--retry-missing` to retry jobs Naukri does not list as applied). Company-site jobs Naukri files under "external site" move
 to the Antigravity list.
 
+## Google Sheet (optional)
+
+Mirrors `Applied_Jobs.xlsx` into a Google Sheet: one tab per day (frozen once the day is over) plus an "All Applied"
+master tab that always holds every application. Off by default.
+
+**Setup (one time, free, about 10 minutes):**
+1. [console.cloud.google.com](https://console.cloud.google.com) → create a project → **APIs & Services → Library** →
+   enable "Google Sheets API".
+2. **APIs & Services → Credentials** → Create Credentials → **Service Account** → create it → **Keys** → Add key →
+   JSON. Save the downloaded file in this folder (e.g. `service-account.json`). It is a credential - never commit it
+   (`.gitignore` already excludes `service-account*.json`).
+3. Create a Google Sheet (or use an existing one). Open **Share**, and add the service account's email (it ends
+   `...iam.gserviceaccount.com`, shown in the JSON file and the Cloud Console) as **Editor**.
+4. Copy the Sheet's id from its URL: `docs.google.com/spreadsheets/d/<sheet_id>/edit`.
+5. In `config.yaml`, under `google_sheet:`, set `enabled: true`, `sheet_id`, and `service_account_file` (the path
+   from step 2).
+
+Then `python main.py sync-sheet` pushes once by hand, and every real `python main.py run` pushes automatically at
+the end (never on a dry run; a sync failure is noted but never stops the run).
+
 **Questions the tool cannot answer**: `python main.py questions` lists the questions that sent jobs to `needs_manual`.
 Add TRUE answers to `config.yaml` under `answers:` (a regex for the question + the answer); the next runs use them.
 At the end of each platform the terminal prints a **funnel** (cards seen, skipped from the card, opened, skipped for fit,

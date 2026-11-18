@@ -201,6 +201,16 @@ def cmd_verify(a):
         print(f"could not update Excel: {e}")
 
 
+def cmd_sync_sheet(a):
+    """Push applied jobs to the Google Sheet (daily tabs + a master tab). See 'Google Sheet' in README.md to set it up."""
+    from core import db, sheets
+    from core.config import load_config
+    cfg = load_config()
+    if not sheets.configured(cfg):
+        sys.exit("google_sheet is not set up: set enabled: true, sheet_id and service_account_file in config.yaml (see README.md).")
+    sheets.sync(db.connect(), cfg)
+
+
 def cmd_coverletter(a):
     """Check a cover letter / email body the agent wrote: nothing is used unless this prints OK."""
     from core import coverletter
@@ -348,6 +358,7 @@ def main():
     v.add_argument("platform", nargs="?", choices=["naukri", "instahyre", "indeed"])
     v.add_argument("--retry-missing", action="store_true", help="jobs NOT on the Applied list are reset so the next run retries them")
     v.set_defaults(f=cmd_verify)
+    sub.add_parser("sync-sheet", help="push applied jobs to the Google Sheet (daily tabs + a master tab)").set_defaults(f=cmd_sync_sheet)
     cl = sub.add_parser("coverletter", help="check a cover letter / email body against the resume facts")
     cl.add_argument("--file", required=True); cl.set_defaults(f=cmd_coverletter)
     em = sub.add_parser("email", help="apply by email to an address found on the company's own site (dry run unless --send)")
