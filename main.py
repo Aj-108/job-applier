@@ -98,10 +98,9 @@ def cmd_dashboard(a):
 def cmd_upload_resume(a):
     """Upload your MAIN resume (archit_sde.pdf, unchanged) to a site profile."""
     import importlib
-    from core.config import load_config, ROOT
+    from core.config import resume_file
     from platforms.base import session
-    cfg = load_config()
-    f = ROOT / (cfg.get("resume_pdf") or cfg.get("resume_docx") or "archit_sde.pdf")
+    f = resume_file()
     P = importlib.import_module(f"platforms.{a.platform}")
     with session(a.platform) as page:
         if not P.logged_in(page):
@@ -112,11 +111,15 @@ def cmd_upload_resume(a):
 
 def cmd_handoff(a):
     from core import db, handoff
-    d = handoff.build(db.connect())
-    g = handoff.pending_jobs(db.connect())
+    from core.config import resume_file
+    f = resume_file()
+    d = handoff.build(db.connect(), limit=a.limit, questions=a.questions)
+    s = handoff.LAST_STATS
     print(f"Hand-off ready in {d}/\n  ANTIGRAVITY_BRIEF.md  <- give this to the agent\n  results.csv           <- the agent fills this in\n  (resume: {f.name})\n"
-          f"Jobs: {len(g['external'])} company-site, {len(g['needs_manual'])} need answers, {len(g['unconfirmed'])} to verify.\n"
-          f"When the agent is done: python main.py import-results")
+          f"This brief: {s['in_brief']} company-site jobs (best fit first)"
+          + (f" + {s['questions']} that need answers" if a.questions else "") + f", {s['unconfirmed']} to verify.\n"
+          f"Not in this brief: {s['later']} more company-site jobs for the next batch, {s['dropped']} dropped as poor fits under the current rules.\n"
+          f"When the agent is done: python main.py import-results   then   python main.py handoff   for the next batch")
 
 
 def cmd_import(a):
@@ -135,6 +138,63 @@ def cmd_excel(a):
     p = excel.export(con)
     n = con.execute("SELECT COUNT(*) c FROM applications WHERE status='applied'").fetchone()["c"]
     print(f"{p}\n  {n} applied jobs listed" + (f"  ({added} added by the browser agent / by hand were loaded first)" if added else ""))
+
+
+def cmd_rescore(a):
+    """Re-judge every job skipped so far with the CURRENT rules (skills_bank.yaml, min_fit_score, matcher) - no browser.
+    Shows how many earlier skips would now pass, so you can check a rule change before a live run."""
+    from collections import Counter
+    from core import db
+    from core.config import load_config
+    from core.matcher import evaluate, prescreen
+    cfg, con = load_config(), db.connect()
+    jobs = {(r["platform"], r["job_id"]): dict(r) for r in con.execute("SELECT * FROM jobs")}
+    rows = con.execute("""SELECT a.* FROM applications a JOIN (SELECT platform, job_id, MAX(id) m FROM applications GROUP BY 1, 2) l
+                          ON a.id = l.m WHERE a.status = 'skipped' AND a.reason NOT LIKE 'already applied%'
+                          AND a.reason NOT LIKE 'not reached%'""").fetchall()
+    now_pass, still = [], Counter()
+    for r in rows:
+        j = jobs.get((r["platform"], r["job_id"])) or {"title": r["title"], "exp_text": r["exp_text"] or "", "description": ""}
+        j.setdefault("exp_text", r["exp_text"] or "")
+        why = prescreen(j, cfg)
+        if not why and j.get("description"):
+            ev = evaluate(dict(j), cfg)
+            why = "" if ev["ok"] else ev["reason"]
+        elif not why:
+            why = "(page never read - will be opened next run)"
+        if why:
+            still[why.split("(")[0].split(":")[0].split("<")[0].strip()] += 1
+        else:
+            now_pass.append(r)
+    print(f"{len(rows)} jobs skipped so far.  Under the current rules {len(now_pass)} of them would now PASS.\n")
+    for r in now_pass[:a.show]:
+        print(f"  + [{r['platform']}] {r['title']} @ {r['company']}   (was: {(r['reason'] or '')[:70]})")
+    print("\nStill skipped, by reason:")
+    for k, v in still.most_common():
+        print(f"  {v:5}  {k}")
+
+
+def cmd_questions(a):
+    """Questions that sent jobs to needs_manual, most frequent first, as ready-to-fill config.yaml `answers:` entries."""
+    import re
+    from collections import Counter
+    from core import db
+    con = db.connect()
+    qs, opts = Counter(), {}
+    for r in con.execute("SELECT reason FROM applications WHERE status='needs_manual'"):
+        m = re.match(r"(?:unanswerable question|multi-choice question needs you): (.*?)(?: \| options: (.*))?$", r["reason"] or "")
+        if m:
+            q = " ".join(m.group(1).split())
+            qs[q] += 1
+            if m.group(2):
+                opts[q] = m.group(2)
+    if not qs:
+        print("No unanswered questions recorded yet.")
+        return
+    print("Questions that stopped an application (count). Add TRUE answers to config.yaml under `answers:`\n")
+    for q, n in qs.most_common(a.top):
+        print(f"  {n:3}  {q}" + (f"\n       options: {opts[q]}" if q in opts else ""))
+    print("\nExample entry:\nanswers:\n  - match: \"" + re.escape(qs.most_common(1)[0][0][:40].lower()) + "\"\n    answer: \"...\"")
 
 
 def cmd_login(a):
@@ -195,10 +255,10 @@ def main():
     t.add_argument("--jd"); t.add_argument("--clipboard", action="store_true", help="read the job description from the clipboard"); t.add_argument("--name", default="test"); t.add_argument("--no-claude", action="store_true")
     t.set_defaults(f=cmd_tailor)
     l = sub.add_parser("login", help="log in to a platform once, by hand, in a persistent browser profile")
-    l.add_argument("platform", choices=["naukri", "linkedin", "instahyre"]); l.set_defaults(f=cmd_login)
+    l.add_argument("platform", choices=["all", "naukri", "linkedin", "instahyre", "indeed"]); l.set_defaults(f=cmd_login)
     r = sub.add_parser("run", help="run the applier")
     r.add_argument("--minutes", type=int, default=60); r.add_argument("--dry-run", action="store_true")
-    r.add_argument("--only", choices=["naukri", "linkedin", "instahyre"]); r.add_argument("--cap", type=int, help="max applications per platform")
+    r.add_argument("--only", choices=["naukri", "linkedin", "instahyre", "indeed"]); r.add_argument("--cap", type=int, help="max applications per platform")
     r.set_defaults(f=cmd_run)
     p = sub.add_parser("report", help="rebuild the report"); p.add_argument("--run", default="last", help="last | all | <run id>")
     p.set_defaults(f=cmd_report)
@@ -206,10 +266,17 @@ def main():
     d.add_argument("--port", type=int, default=8765); d.add_argument("--all", action="store_true", help="all runs, not just the latest")
     d.set_defaults(f=cmd_dashboard)
     u = sub.add_parser("upload-resume", help="put your main resume (unchanged) on a site profile")
-    u.add_argument("platform", choices=["naukri", "instahyre"]); u.set_defaults(f=cmd_upload_resume)
-    sub.add_parser("handoff", help="prepare company-site / needs-answer jobs for a browser agent (Antigravity)").set_defaults(f=cmd_handoff)
+    u.add_argument("platform", choices=["naukri", "instahyre", "indeed"]); u.set_defaults(f=cmd_upload_resume)
+    h = sub.add_parser("handoff", help="write the brief (.md) for a browser agent (Antigravity): company-site jobs, best fit first")
+    h.add_argument("--limit", type=int, default=15, help="jobs per brief (default 15)")
+    h.add_argument("--questions", action="store_true", help="also include jobs that stopped on a question")
+    h.set_defaults(f=cmd_handoff)
     i = sub.add_parser("import-results", help="bring the agent's results.csv back into the tracker")
     i.add_argument("file", nargs="?"); i.set_defaults(f=cmd_import)
+    qq = sub.add_parser("questions", help="list the questions that sent jobs to needs_manual (to fill `answers:`)")
+    qq.add_argument("--top", type=int, default=30); qq.set_defaults(f=cmd_questions)
+    rs = sub.add_parser("rescore", help="re-judge earlier skipped jobs with the current rules (no browser)")
+    rs.add_argument("--show", type=int, default=30, help="how many now-passing jobs to list"); rs.set_defaults(f=cmd_rescore)
     sub.add_parser("excel", help="rebuild Applied_Jobs.xlsx (applied jobs only)").set_defaults(f=cmd_excel)
     sub.add_parser("models", help="list Gemini models for your key + test call").set_defaults(f=cmd_models)
     sub.add_parser("demo-report", help="see a sample report with fake data").set_defaults(f=cmd_demo)

@@ -1,4 +1,5 @@
 import sys, copy
+import pytest
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from core.config import ROOT, load_skills
@@ -8,7 +9,9 @@ from core.jd_parser import extract_skills, is_blocked_stack, parse_experience
 from core.matcher import evaluate
 
 _docx = Path(__file__).parent / "data" / "test_resume.docx"
-orig = load_resume(_docx)
+orig = load_resume(_docx) if _docx.exists() else None
+# the sample resume .docx is git-ignored (*.docx); tests that need it are skipped when it is missing
+needs_docx = pytest.mark.skipif(orig is None, reason="tests/data/test_resume.docx missing")
 sk = load_skills()
 CFG = {"min_fit_score": 55, "max_experience_years": 4}
 
@@ -17,35 +20,42 @@ def base():
     return {"headline": orig["headline"], "summary": orig["summary"], "skills": copy.deepcopy(orig["skills"]), "bullets": {}}
 
 
+@needs_docx
 def test_original_is_valid():
     assert validate(base(), orig, sk) == []
 
 
+@needs_docx
 def test_blocked_rejected():
     t = base(); t["summary"] = orig["summary"].replace("Node.js", "Django")
     assert any("Django" in p for p in validate(t, orig, sk))
 
 
+@needs_docx
 def test_blocked_in_skills_rejected():
     t = base(); t["skills"]["Backend"].append("Django")
     assert validate(t, orig, sk)
 
 
+@needs_docx
 def test_new_number_rejected():
     t = base(); t["summary"] = orig["summary"].replace("2.5+", "5+")
     assert any("numbers" in p for p in validate(t, orig, sk))
 
 
+@needs_docx
 def test_removed_skill_rejected():
     t = base(); t["skills"]["Databases"] = ["MongoDB"]
     assert any("removed" in p for p in validate(t, orig, sk))
 
 
+@needs_docx
 def test_unknown_skill_rejected():
     t = base(); t["skills"]["Tools"].append("Jenkins")
     assert any("not allowed" in p for p in validate(t, orig, sk))
 
 
+@needs_docx
 def test_django_react_job_never_gets_django():
     jd = "Django + React developer. Python, Django REST, PostgreSQL, React.js. 3 years."
     t = tailor(orig, jd, use_claude=False)
@@ -54,6 +64,7 @@ def test_django_react_job_never_gets_django():
     assert validate(t, orig, sk) == []
 
 
+@needs_docx
 def test_react_job_reorders_and_matches():
     jd = "React.js developer with Redux Toolkit, TypeScript, Tailwind CSS, REST APIs, Jest, Unit Testing, Git."
     t = tailor(orig, jd, use_claude=False)
@@ -102,6 +113,7 @@ def test_answers():
     assert answer("Notice period", cfg=cfg) is None
 
 
+@needs_docx
 def test_gemini_path_mocked(monkeypatch):
     """Gemini returns a valid answer -> used; returns a Django answer -> rejected and rules fallback used."""
     import types
@@ -128,6 +140,7 @@ def test_gemini_path_mocked(monkeypatch):
     assert t["engine"] == "rules" and "rejected" in t["notes"] and "Django" not in str(t["summary"])
 
 
+@needs_docx
 def test_bad_bullet_dropped_but_rest_kept(monkeypatch):
     import types
     from google import genai

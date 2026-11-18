@@ -162,3 +162,66 @@ Loop: `python main.py handoff` → run Antigravity on the brief → `python main
 - [ ] Check `answers.py` never fabricates: unknown label → no answer → job becomes `needs_manual`/skipped, not guessed.
 - [ ] Run `.venv/bin/python -m pytest -q` (expect 29 passed; tests never touch the real DB/Excel or AI).
 - [ ] Look at `logs/` screenshots for `unconfirmed` rows and tune success detection against what the site really shows.
+
+
+## 13. Throughput changes (2026-11-18)
+
+- **Time**: Naukri 35 / Instahyre 10 / Indeed 15 min; unused minutes carry over to the next platform (`scheduler.run`).
+- **Cooldown**: `apply_delay [25,50]` is a minimum gap between two real Apply clicks (`applied` / `unconfirmed` / `needs_manual`),
+  not a sleep after every job. Reading and scoring the next jobs counts towards it. `precheck()` (Naukri, Indeed) detects
+  company-site / already-applied jobs without clicking, so those never wait.
+- **No wasted page loads**: company already applied is checked from the search card; every skip (card, company, fit) is
+  stored in `skip_cache` keyed by `config.rules_fingerprint()` (skills bank + limits + `matcher.RULES_VERSION`).
+- **Naukri search**: `queries()` = role x location x experience {floor, ceil of total years}; page 2 when page 1 is full;
+  the query list is rotated by run id.
+- **Rules**: `soft_blocked` (AWS, Azure, GCP, Kubernetes, Terraform) never skips or costs points, and is still never claimed
+  (`config.never_claim`). Title checks are whole-word regexes (`matcher.DEV_RX / STACK_RX / SKIP_TITLE_RX`). 2 matching
+  skills cap the score at 55 (was 40). Blocked-stack test compares mentions with mentions. Bare "next" / "rest" /
+  "responsive" are no longer skills. Page-body fallback is cut at "Similar jobs" etc. (`base.strip_noise`).
+- **Block check**: visible captcha / Cloudflare widgets, bot wording only on short pages or the title, limit wording anywhere.
+- **Indeed** (`platforms/indeed.py`): in.indeed.com search (last 7 days, Easily-apply cards first), JD `#jobDescriptionText`,
+  Indeed Apply multi-step form filled from `config.yaml` (`FIELDS_JS` labels every field; unknown -> `needs_manual`, checkbox
+  groups never ticked), main resume uploaded on the resume step. **Not yet verified live.**
+- `openpyxl` was missing from requirements.txt (Excel updates silently failed on a fresh install) - added.
+
+## 14. Instahyre rework (Phase 3, verified live 2026-11-18)
+
+Why it never applied before: cards only have **View job** + **Not interested**; the Apply button lives in the job popup.
+The old `apply()` looked for Apply on the card, found none, and returned "skipped". It also scored jobs on 600 chars of
+card text (score capped at 40), filtered cities by literal text ("Gurugram" never matches Instahyre's "Gurgaon"), and
+`li:has-text('Next')` matched the "Next.js" skill tags instead of the pager.
+
+Now (`platforms/instahyre.py`):
+- Job data is read from Angular (`angular.element(.employer-block).scope().opp`): job id (`'j' + job.id` - search results have no
+  opportunity id), title, company, locations, skills, `interview_status` (0 = pending; anything else is skipped).
+- Sources: the recommended list (pages 1-5), then skill searches (`platforms.instahyre.skills`, default React.js,
+  Node.js, Next.js, MERN Stack, Shopify; `search_pages`, default 10). Search = type skill, pick the exact suggestion
+  inside the search box's dropdown, JS-click Search. Search URLs cannot be loaded directly (they show the recommended list).
+- Cities are filtered on our side with aliases (`LOC_ALIASES`: Gurgaon = Gurugram, Work From Home = Remote, ...). The
+  site's city filter is not used: its text matches card chips and opens job popups.
+- `details()` opens the popup (`.candidate-apply-modal`) and reads `.right-section-modal` (full JD + "2-6 Years").
+- `apply()` JS-clicks the popup's Apply; success = "Applied jobs N" counter goes up, or opp status 1, or a confirmation
+  text; otherwise `unconfirmed` + screenshot. The popup is closed after every job. All clicks are JS clicks because an
+  invisible popup layer can swallow real mouse clicks.
+- Instahyre is now applied inline like the other platforms (no collect phase, no `refresh()`).
+- **Still unverified**: what the page shows right after a real Apply click (the first live apply will tell).
+
+## 15. Phase 4 (2026-11-18)
+
+- **Parallel** (`parallel: true`, default): `base.browser_host()` starts the job-applier Chrome once per run;
+  each platform is a thread with its own Playwright connection (`connect_over_cdp`), its own tab, its own DB connection
+  (`sqlite3 timeout=30`) and its own Apply cooldown. `scheduler.APPLY_LOCK` covers company check + Apply click + DB/Excel
+  write, so two sites never apply to the same company at once. Ctrl+C sets a stop event; each thread ends after its
+  current job. Threads start 3 s apart.
+- **Answers**: `config.yaml answers: [{match: regex, answer: text}]`, checked first by `answers.answer()` (and therefore
+  by `pick_option()`); invalid regexes are ignored. `python main.py questions` lists unanswered questions by frequency.
+- **Indeed, verified live**: Apply = `[data-testid='viewjob-indeed-apply']` (a link to smartapply.indeed.com),
+  JD = `[data-testid='viewjob-job-content']`. Cards without "Easily apply" are logged `external` without opening the page
+  (`card_outcome`) - opening every job page triggered Cloudflare. Resume step: re-uploads the local PDF when Indeed's
+  stored copy is older than the file. Whole-number fields: "no decimals" error -> answers rounded DOWN and retried once.
+  Verified live end to end 2026-11-18 (Constems-AI, MERN Stack Developer): "Your application has been submitted!" on
+  /form/post-apply, listed under Indeed > My jobs > Applied. Loading screens ("Preparing review") are waited out (20 s),
+  and the confirmation is polled for 20 s after Submit.
+- Block check: the "protected by reCAPTCHA" footer / invisible reCAPTCHA v3 badge on Indeed Apply is NOT a block
+  (brand name stripped before the word check; badge iframes ignored). Real challenges are still caught.
+- Rules: Dynamics 365, AEM, Ruby/ROR blocked (Zoho allowed); "fresher" / "trainee" titles skipped (RULES_VERSION 3).

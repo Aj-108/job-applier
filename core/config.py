@@ -59,5 +59,26 @@ def load_skills() -> dict:
     return yaml.safe_load((ROOT / "skills_bank.yaml").read_text())
 
 
+def resume_file(cfg: dict | None = None) -> Path:
+    """THE resume (config `resume_pdf`, else `resume_docx`). Never edited, converted or replaced."""
+    cfg = cfg or load_config()
+    return ROOT / (cfg.get("resume_pdf") or cfg.get("resume_docx") or "archit_sde.pdf")
+
+
+def never_claim(sk: dict) -> list[str]:
+    """Every skill that must never appear on a resume or in an answer: hard-blocked stacks + soft-blocked (cloud) ones."""
+    return list(sk.get("blocked", [])) + list(sk.get("soft_blocked", []))
+
+
+def rules_fingerprint(cfg: dict) -> str:
+    """Changes whenever the skip rules change (skills bank, fit / experience limits, matcher code version).
+    Cached skip decisions are only reused while this stays the same."""
+    import hashlib
+    from .matcher import RULES_VERSION
+    raw = "|".join([(ROOT / "skills_bank.yaml").read_text(), str(cfg.get("min_fit_score")),
+                    str(cfg.get("max_experience_years")), RULES_VERSION])
+    return hashlib.md5(raw.encode()).hexdigest()[:10]
+
+
 def flat(d: dict) -> list[str]:
     return [s for v in d.values() for s in v]

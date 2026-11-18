@@ -1,6 +1,6 @@
 # Job Applier
 
-Automatically applies to matching jobs on **Naukri** and **Instahyre** for about an hour per run, hands company-website jobs to **Antigravity** (a browser agent), and keeps one Excel file of every job applied to.
+Automatically applies to matching jobs on **Naukri**, **Instahyre** and **Indeed** (Easily apply) for about an hour per run, hands company-website jobs to **Antigravity** (a browser agent), and keeps one Excel file of every job applied to.
 
 - Uses **one resume only**, never edited. Never applies twice to the same company. Never invents skills.
 - LinkedIn is **not automated** (ban risk). Apply to LinkedIn jobs by hand.
@@ -17,18 +17,22 @@ git clone <your-repo-url> && cd <repo>
 
 Then:
 
-1. **Resume**: copy your `.docx` resume into the project folder. In `config.yaml`, set `resume_docx:` to its file name.
+1. **Resume**: copy your resume (PDF or `.docx`) into the project folder. In `config.yaml`, set `resume_pdf:` (or `resume_docx:`) to its file name.
 2. **Profile**: in `config.yaml`, fill in the `profile:` block: name, email, phone, experience, current and expected CTC, notice period, location, and years per skill. These answers fill job forms. Anything not covered is never guessed; that job is left for you.
 3. **Search settings** (optional), also in `config.yaml`: `roles`, `locations`, `min_fit_score`, `max_experience_years`, and the per-platform `minutes` and `max_apply`.
 4. **Skills** (optional): review `skills_bank.yaml`. `core` and `adjacent` are skills you may claim; `blocked` are stacks the tool will skip (Java, PHP, Python and so on).
 5. **AI key** (optional): only the manual `tailor` command uses AI. Set `AI_PROVIDER=gemini|anthropic|none` and the key in `.env`. Runs work without it.
 
-Log in to each site once. A browser opens; log in by hand. Only the session cookies are kept, in `.browser/`:
+Log in to each site once. Your real Google Chrome opens with a separate job-applier profile (`.browser/chrome`) and
+nothing automated attached, so "Sign in with Google" works. Log in by hand in each tab, then **quit that Chrome
+window (Cmd+Q)** and press Enter. Your everyday Chrome is not touched and can stay open.
 
 ```
-python main.py login naukri
-python main.py login instahyre
+python main.py login all          # or: login naukri | instahyre | indeed
 ```
+
+During a run the tool starts that same Chrome profile itself, so the job-applier Chrome window must be closed first.
+(`browser: playwright` in config.yaml switches back to the bundled Chromium, where Google sign-in is refused.)
 
 ## 2. Run
 
@@ -50,7 +54,20 @@ Live report in a second terminal. It opens in the browser and refreshes itself:
 python main.py dashboard
 ```
 
-Useful options: `--only naukri` (one platform), `--cap 5` (max applications), `--dry-run`.
+Useful options: `--only naukri|instahyre|indeed` (one platform), `--cap 5` (max applications), `--dry-run`.
+
+All platforms run **at the same time** (`parallel: true`): one Chrome, one tab per site, each with its own pacing, for
+the whole run, up to each site's `max_apply`. With `parallel: false` they run one after another (Naukri 35 min,
+Instahyre 10, Indeed 15; minutes one platform does not use go to the next). `--only <site>` always runs just that site.
+
+**Questions the tool cannot answer**: `python main.py questions` lists the questions that sent jobs to `needs_manual`.
+Add TRUE answers to `config.yaml` under `answers:` (a regex for the question + the answer); the next runs use them.
+At the end of each platform the terminal prints a **funnel** (cards seen, skipped from the card, opened, skipped for fit,
+applied, external...) so you can see where jobs drop out.
+
+After changing `skills_bank.yaml` or `min_fit_score`, check the effect without a browser:
+`python main.py rescore` lists earlier skipped jobs that the new rules would now accept. Skip decisions are cached per
+rules version, so jobs are re-checked once automatically after a rule change.
 Keep the browser window open and the Mac awake while it runs. If a CAPTCHA, a limit or an "Access Denied" page appears, the tool stops that platform and moves on. Do not try to get around it.
 
 ## 3. Company-website jobs (Antigravity)

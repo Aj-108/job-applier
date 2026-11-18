@@ -1,9 +1,10 @@
 """Naukri.com - search, read JD, one-click apply (+ questionnaire bot). Selectors are best-effort: verify with --dry-run."""
+import math
 import re
 from urllib.parse import quote
 from core.answers import answer, pick_option
 from core.jd_parser import parse_experience
-from .base import human_sleep, page_text, check_blocked, snap
+from .base import human_sleep, page_text, check_blocked, snap, Blocked
 
 NAME = "naukri"
 JD_SELECTORS = ["section[class*='job-desc']", "div[class*='JDC__dang']", ".job-desc", "div[class*='dang-inner-html']"]
@@ -19,16 +20,44 @@ def logged_in(page) -> bool:
     return "nlogin" not in page.url and "login" not in page.url.split("?")[0]
 
 
-def search_url(role: str, loc: str) -> str:
+PAGE_SIZE = 20          # Naukri shows 20 cards per result page
+
+
+def queries(cfg: dict):
+    """(role, location, experience) searches. Naukri's experience=N filter returns jobs whose range contains N, so with
+    2.8 years we search both 2 and 3 ("3-5 yrs" jobs never show up under experience=2)."""
+    yrs = float(cfg.get("profile", {}).get("total_experience_years") or 2)
+    exps = sorted({max(0, math.floor(yrs)), max(0, math.ceil(yrs))})
+    for loc in cfg["locations"]:
+        for role in cfg["roles"]:
+            for exp in exps:
+                yield role, loc, exp
+
+
+def search_url(role: str, loc: str, exp: int = 2, pg: int = 1) -> str:
     slug = re.sub(r"[^a-z0-9]+", "-", role.lower()).strip("-")
-    q = "experience=2&jobAge=7"
+    q = f"experience={exp}&jobAge=7"
+    suffix = f"-{pg}" if pg > 1 else ""            # page 2 = ".../react-developer-jobs-in-delhi-2?..."
     if loc.lower() == "remote":
-        return f"https://www.naukri.com/{slug}-jobs?k={quote(role)}&wfhType=2&{q}"
-    return f"https://www.naukri.com/{slug}-jobs-in-{loc.lower()}?k={quote(role)}&l={quote(loc)}&{q}"
+        return f"https://www.naukri.com/{slug}-jobs{suffix}?k={quote(role)}&wfhType=2&{q}"
+    return f"https://www.naukri.com/{slug}-jobs-in-{loc.lower()}{suffix}?k={quote(role)}&l={quote(loc)}&{q}"
 
 
-def search(page, role: str, loc: str) -> list[dict]:
-    page.goto(search_url(role, loc), wait_until="domcontentloaded")
+def search(page, role: str, loc: str, exp: int = 2) -> list[dict]:
+    """Page 1 of the results, plus page 2 when page 1 was full (new jobs are often past the first 20)."""
+    jobs = _search_page(page, role, loc, exp, 1)
+    if len(jobs) >= PAGE_SIZE:
+        try:
+            jobs += _search_page(page, role, loc, exp, 2)
+        except Blocked:
+            raise
+        except Exception:
+            pass                                    # page 2 is a bonus: keep page 1's jobs
+    return jobs
+
+
+def _search_page(page, role: str, loc: str, exp: int, pg: int) -> list[dict]:
+    page.goto(search_url(role, loc, exp, pg), wait_until="domcontentloaded")
     human_sleep((3, 6))
     check_blocked(page)
     jobs = []
@@ -64,26 +93,38 @@ def upload_profile_resume(page, pdf_path) -> bool:
         return False
 
 
+# the questionnaire drawer; everything is looked up INSIDE it (a page-wide "button:has-text('Save')" hit a button
+# behind the drawer's overlay -> click timed out)
+CHATBOT = "[id$='ChatbotContainer'], ._chatBotContainer"
+
+
+def _js_click(handle):
+    handle.evaluate("e => e.click()")
+
+
 def _chatbot(page) -> str | None:
     """Answer Naukri's post-apply questionnaire. Returns None if finished, or a reason string if we must stop."""
     for _ in range(10):
         human_sleep((1, 2))
         if _applied(page):
             return None
-        qs = page.query_selector_all(".botMsg, [class*='botItem'] , [class*='chatbot'] .msg")
+        cb = page.query_selector(CHATBOT)
+        root = cb or page
+        qs = root.query_selector_all(".botMsg, [class*='botItem'] , [class*='chatbot'] .msg")
         if not qs:
             return None
         q = (qs[-1].inner_text() or "").strip()
         # radio / chip options
-        opts = page.query_selector_all("[class*='ssrc__radio'] label, [class*='chipsContainer'] .chip, .chatbot_Chip")
+        opts = [o for o in root.query_selector_all("[class*='ssrc__radio'] label, [class*='chipsContainer'] .chip, .chatbot_Chip")
+                if o.is_visible()]
         if opts:
             texts = [(o.inner_text() or "").strip() for o in opts]
             idx = pick_option(q, texts)
             if idx is None:
                 return f"unanswerable question: {q[:80]} | options: {' / '.join(texts)[:120]}"
-            opts[idx].click()
+            _js_click(opts[idx])
         else:
-            box = page.query_selector("div[contenteditable='true'], .chatbot_InputContainer input, textarea")
+            box = root.query_selector("div[contenteditable='true'], .chatbot_InputContainer input, textarea")
             if not box:
                 return None
             a = answer(q)
@@ -91,9 +132,10 @@ def _chatbot(page) -> str | None:
                 return f"unanswerable question: {q[:80]}"
             box.click()
             box.fill(a) if box.evaluate("e => e.tagName") in ("INPUT", "TEXTAREA") else page.keyboard.type(a)
-        sv = page.query_selector(".sendMsg, button:has-text('Save'), button:has-text('Submit')")
+        sv = next((b for b in root.query_selector_all(".sendMsg, button:has-text('Save'), button:has-text('Submit')")
+                   if b.is_visible()), None)
         if sv:
-            sv.click()
+            _js_click(sv)
     return "questionnaire too long"
 
 
@@ -112,11 +154,14 @@ def _applied(page) -> bool:
         return False
 
 
-def apply(page, job: dict, resume_pdf, dry_run: bool) -> tuple[str, str]:
-    """-> (status, reason). Assumes details(page, job) has just loaded the job page."""
+APPLY_BTN = "#apply-button, button.apply-button, button:has-text('Apply')"
+
+
+def precheck(page, job: dict) -> tuple[str, str] | None:
+    """Outcome known WITHOUT clicking (company site / already applied / no button), else None = go ahead and click."""
     if page.query_selector("#company-site-button, button:has-text('Apply on company site')"):
         return "external", "redirects to company website"
-    btn = page.query_selector("#apply-button, button.apply-button, button:has-text('Apply')")
+    btn = page.query_selector(APPLY_BTN)
     if not btn:
         if _applied(page) or page.query_selector("button:has-text('Applied')"):
             return "skipped", "already applied"
@@ -126,6 +171,15 @@ def apply(page, job: dict, resume_pdf, dry_run: bool) -> tuple[str, str]:
         return "skipped", "already applied (Naukri shows 'Applied')"
     if "company" in label:
         return "external", "redirects to company website"
+    return None
+
+
+def apply(page, job: dict, resume_pdf, dry_run: bool) -> tuple[str, str]:
+    """-> (status, reason). Assumes details(page, job) has just loaded the job page."""
+    pre = precheck(page, job)
+    if pre:
+        return pre
+    btn = page.query_selector(APPLY_BTN)
     if dry_run:
         return "dry_run", "would apply"
     btn.click()

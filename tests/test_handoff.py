@@ -25,10 +25,30 @@ def test_pending_and_import(tmp_path):
 
 
 def test_handoff_points_to_the_original_resume(tmp_path, monkeypatch):
-    from core.config import ROOT, load_config
+    from core.config import resume_file
     con = db.connect(tmp_path / "t.db")
     monkeypatch.setattr(handoff, "HANDOFF", tmp_path / "h")
     handoff.build(con)
     brief = (tmp_path / "h" / "ANTIGRAVITY_BRIEF.md").read_text()
-    assert str((ROOT / load_config()["resume_docx"]).resolve()) in brief
+    assert str(resume_file().resolve()) in brief
     assert "Archit_Jain_Resume" not in brief
+
+
+def test_brief_is_a_ranked_batch_without_poor_fits(tmp_path, monkeypatch):
+    monkeypatch.setattr(handoff, "HANDOFF", tmp_path / "h")
+    con = db.connect(tmp_path / "t.db")
+    rid = db.start_run(con, False)
+    jobs = [("1", "MERN Stack Developer", "Aa", "2-5 Yrs", 70), ("2", "React Developer", "Bb", "0-1 Yrs", 99),    # not for 2.8 yrs
+            ("3", "Node.js Developer", "Cc", "2-4 Yrs", 90), ("4", "Java Developer", "Dd", "2-4 Yrs", 95),       # blocked stack
+            ("5", "Team Lead - Node.js", "Ee", "2-4 Yrs", 95)]                                                   # wrong level
+    for jid, title, co, exp, fit in jobs:
+        j = {"platform": "naukri", "job_id": jid, "title": title, "company": co, "location": "Noida", "remote": 0,
+             "url": f"http://j/{jid}", "exp_text": exp}
+        db.log_application(con, rid, j, "external", "redirects to company website", fit, ["React.js"])
+    handoff.build(con, limit=2)
+    brief = (tmp_path / "h" / "ANTIGRAVITY_BRIEF.md").read_text()
+    assert handoff.LAST_STATS["dropped"] == 2 and handoff.LAST_STATS["in_brief"] == 2 and handoff.LAST_STATS["later"] == 1
+    assert brief.index("Node.js Developer - Cc") < brief.index("MERN Stack Developer - Aa")       # best fit first
+    assert "Java Developer" not in brief and "Team Lead" not in brief and "React Developer - Bb" not in brief
+    assert "Indeed" in brief
+    assert (tmp_path / "h" / "results.csv").read_text().count("\n") == 3                          # header + 2 batch rows

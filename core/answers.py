@@ -11,11 +11,26 @@ def _fmt(x):
     return str(int(x)) if float(x) == int(float(x)) else str(x)
 
 
+def custom_answer(l: str, cfg: dict) -> str | None:
+    """Your own answers from config.yaml `answers:` (list of {match: regex, answer: text}). First match wins."""
+    for item in cfg.get("answers") or []:
+        try:
+            if re.search(str(item["match"]), l, re.I):
+                return str(item["answer"])
+        except (re.error, KeyError, TypeError):
+            continue
+    return None
+
+
 def answer(label: str, kind: str = "text", cfg: dict | None = None) -> str | None:
-    p = (cfg or load_config())["profile"]
+    cfg = cfg or load_config()
+    p = cfg["profile"]
     l = re.sub(r"\s+", " ", (label or "").lower()).strip()
     if not l:
         return None
+    mine = custom_answer(l, cfg)                    # your explicit answers win over the built-in rules
+    if mine is not None:
+        return mine
     if re.search(r"sponsor", l):
         return "No"
     if re.search(r"relocat|willing to (move|work)|comfortable (working|commut)", l):
@@ -25,7 +40,9 @@ def answer(label: str, kind: str = "text", cfg: dict | None = None) -> str | Non
     if "notice" in l:
         v = _num(p.get("notice_period_days"))
         return _fmt(v) if v is not None else None
-    if re.search(r"current (ctc|salary|compensation)|present (ctc|salary)|current annual", l):
+    if re.search(r"current (ctc|salary|compensation)|present (ctc|salary)|current annual|last drawn|previous (ctc|salary)", l):
+        if re.search(r"month", l):
+            return None                             # monthly in-hand pay is not CTC / 12: do not guess
         v = _num(p.get("current_ctc_lpa"))
         return None if v is None else (_fmt(v) if re.search(r"lpa|lakh|lac", l) else _fmt(float(v) * 100000))
     if re.search(r"expected (ctc|salary|compensation)|salary expectation|expected annual", l):
@@ -49,6 +66,11 @@ def answer(label: str, kind: str = "text", cfg: dict | None = None) -> str | Non
         return p["full_name"].split()[0]
     if re.search(r"last name|surname", l):
         return p["full_name"].split()[-1]
+    # current role / employer (Indeed's "relevant experience" step). Anchored: "why do you want to join our company?" is NOT this.
+    if re.search(r"^(your )?(current |most recent )?job title\??$|current (job title|designation|role)\b|most recent job title", l):
+        return _num(p.get("current_title"))
+    if re.search(r"^(your )?(current |most recent )?(company|employer)( name)?\??$|current (company|employer)\b|most recent (company|employer)", l):
+        return _num(p.get("current_company"))
     if re.search(r"current (city|location)|where.*(located|based)|current location|city", l):
         v = _num(p.get("current_location"))
         return v
