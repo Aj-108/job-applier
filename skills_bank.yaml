@@ -1,0 +1,58 @@
+# core: skills already on the resume (always safe)
+core:
+  frontend: [React.js, Next.js, TypeScript, JavaScript, Redux Toolkit, React Query, MUI, Tailwind CSS, Bootstrap, HTML5, CSS3, React Hook Form, Responsive Design]
+  backend: [Node.js, Express.js, REST APIs, JWT Authentication, Webhooks, Cron Jobs, Mongoose]
+  databases: [MongoDB, PostgreSQL, SQL, Prisma]
+  shopify: [Shopify Liquid, Shopify CLI, Dawn Theme, Custom Sections, Product Templates, Blog Templates, Polaris, Remix]
+  integrations: [Stripe, SendGrid, Mailjet, Twilio, Shopify Apps]
+  tools: [Git, GitHub, Docker, Postman]
+
+# adjacent: closely related to what is already on the resume - OK to mention. REVIEW this list once before the first run.
+adjacent:
+  frontend: [React Hooks, Context API, SSR, SSG, Next.js App Router, State Management, Web Performance, Mobile-first Design, Cross-browser Compatibility, Component-driven Development]
+  backend: [API Design, RBAC, Middleware, Authentication and Authorization, Error Handling, Payment Gateway Integration, Third-party API Integration, Background Jobs]
+  databases: [Aggregation Pipelines, Schema Design, Query Optimization, Indexing, NoSQL, Relational Databases]
+  shopify: [Shopify Theme Development, Shopify App Development, Metafields, Storefront Customization, Ecommerce]
+  integrations: [Payment Integrations, Email Integrations, SMS Integrations]
+  tools: [Code Reviews, Agile]
+
+# blocked: never appear in the tailored resume, and jobs whose MAIN stack is one of these are skipped
+blocked:
+  - Django
+  - Flask
+  - FastAPI
+  - Python
+  - Java
+  - Spring
+  - Spring Boot
+  - .NET
+  - ASP.NET
+  - AspDotnet
+  - Dotnet
+  - ASP Dot Net
+  - C#
+  - PHP
+  - Laravel
+  - Angular
+  - Vue
+  - Svelte
+  - Flutter
+  - React Native
+  - Kotlin
+  - Swift
+  - Golang
+  - Ruby on Rails
+  - Kubernetes
+  - Terraform
+  - AWS
+  - Azure
+  - GCP
+  - Machine Learning
+  - Data Science
+  - TensorFlow
+  - PyTorch
+  - SAP
+  - Salesforce
+  - WordPress
+  - Android
+  - iOS

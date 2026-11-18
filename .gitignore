@@ -1,0 +1,18 @@
+# secrets / logged-in browser sessions
+.env
+.browser/
+.lo_profile/
+# environment / caches
+.venv/
+__pycache__/
+.pytest_cache/
+.DS_Store
+# personal data (stays on your machine; remove a line only if the repo is PRIVATE and you want it synced)
+config.yaml
+applier.db
+Applied_Jobs.xlsx
+Applied_Jobs.csv
+*.docx
+*.pdf
+logs/
+out/

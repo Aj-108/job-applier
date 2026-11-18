@@ -1,0 +1,5 @@
+Full Stack Developer (React + Node) - Gurugram / Remote
+Experience: 2-4 Yrs
+We are looking for a developer skilled in React.js, Next.js, TypeScript, Redux, Tailwind CSS, Node.js, Express,
+MongoDB, REST APIs, JWT, unit testing with Jest, CI/CD, GraphQL and microservices. Experience with Stripe or Razorpay
+payment integration is a plus. Familiarity with Docker and Git required. Agile / Scrum.
