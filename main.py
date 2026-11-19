@@ -278,6 +278,25 @@ def cmd_questions(a):
     print("\nExample entry:\nanswers:\n  - match: \"" + re.escape(qs.most_common(1)[0][0][:40].lower()) + "\"\n    answer: \"...\"")
 
 
+def cmd_probe(a):
+    """Developer aid: open one page of a platform in your logged-in browser and save what it looks like (reads only)."""
+    import importlib, json
+    from core.config import OUT
+    from platforms.base import session
+    P = importlib.import_module(f"platforms.{a.platform}")
+    out = OUT / "probe"
+    out.mkdir(parents=True, exist_ok=True)
+    with session(a.platform) as page:
+        if not P.logged_in(page):
+            sys.exit(f"not logged in - run: python main.py login {a.platform}")
+        info = P.probe(page, a.url)
+    (out / f"{a.platform}.html").write_text(info.pop("html"))
+    (out / f"{a.platform}.json").write_text(json.dumps(info, indent=2, ensure_ascii=False))
+    print(f"saved {out}/{a.platform}.json and .html (+ screenshot in logs/). cards found: {len(info['cards'])}")
+    for c in info["cards"]:
+        print("  ", c["id"], "|", c["title"], "|", c["lines"][:4])
+
+
 def cmd_login(a):
     from platforms.base import interactive_login
     interactive_login(a.platform)
@@ -336,10 +355,12 @@ def main():
     t.add_argument("--jd"); t.add_argument("--clipboard", action="store_true", help="read the job description from the clipboard"); t.add_argument("--name", default="test"); t.add_argument("--no-claude", action="store_true")
     t.set_defaults(f=cmd_tailor)
     l = sub.add_parser("login", help="log in to a platform once, by hand, in a persistent browser profile")
-    l.add_argument("platform", choices=["all", "naukri", "linkedin", "instahyre", "indeed"]); l.set_defaults(f=cmd_login)
+    l.add_argument("platform", choices=["all", "naukri", "linkedin", "instahyre", "indeed", "foundit"]); l.set_defaults(f=cmd_login)
+    pr = sub.add_parser("probe", help="save what one platform page really looks like (to fix selectors)")
+    pr.add_argument("platform", choices=["foundit"]); pr.add_argument("--url"); pr.set_defaults(f=cmd_probe)
     r = sub.add_parser("run", help="run the applier")
     r.add_argument("--minutes", type=int, default=60); r.add_argument("--dry-run", action="store_true")
-    r.add_argument("--only", choices=["naukri", "linkedin", "instahyre", "indeed"]); r.add_argument("--cap", type=int, help="max applications per platform")
+    r.add_argument("--only", choices=["naukri", "linkedin", "instahyre", "indeed", "foundit"]); r.add_argument("--cap", type=int, help="max applications per platform")
     r.set_defaults(f=cmd_run)
     p = sub.add_parser("report", help="rebuild the report"); p.add_argument("--run", default="last", help="last | all | <run id>")
     p.set_defaults(f=cmd_report)

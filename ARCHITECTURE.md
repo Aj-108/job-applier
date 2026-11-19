@@ -275,3 +275,8 @@ Now (`platforms/instahyre.py`):
   are all set. `scheduler.run()` calls `sheets.sync()` at the very end of a real run (not dry runs), inside a
   try/except that only adds a NOTE - a Sheets outage never breaks a run. Manual: `python main.py sync-sheet`.
 - Tests (`tests/test_sheets.py`) mock the gspread client/worksheet; nothing touches the network in CI.
+
+
+## Foundit platform (`platforms/foundit.py`) - UNVERIFIED LIVE
+
+Same interface as the other platforms (`logged_in`, `queries`, `search`, `details`, `precheck`, `apply`). URLs and selectors are best guesses (the site returned 403 to automated fetches). `search_url` builds `/srp/results?query=&locations=&experienceRanges=lo~hi&freshness=7` (`workFromHome=true` for Remote). Cards are found as anchors containing `/job/` with a numeric id. Apply is conservative: extra form fields -> `needs_manual`, new tab / company button -> `external`, success text or an "Applied" button -> `applied`, else `unconfirmed`. `python main.py probe foundit` dumps the real page (JSON + HTML + screenshot) to fix selectors. Disabled by default in `config.example.yaml`. No `applied_list` yet, so `verify` does not cover it. Tests: `tests/test_foundit.py`.

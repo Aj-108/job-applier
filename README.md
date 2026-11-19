@@ -161,3 +161,16 @@ If a row is `unconfirmed` and the job really shows as applied on the site, add i
 ## Disclaimer
 
 Automating job sites may break their terms of service. Keep volumes modest and use this at your own risk.
+
+
+## Foundit (new, not yet verified live)
+
+Foundit is built but **off by default**, because its pages could not be inspected while it was written. To bring it up:
+
+1. Add to `platforms:` in your `config.yaml` (copy the line from `config.example.yaml`): `foundit: { enabled: false, minutes: 10, max_apply: 15 }`
+2. `python main.py login foundit` (log in by hand, then quit that Chrome with Cmd+Q)
+3. `python main.py probe foundit`: reads one search page and saves `out/probe/foundit.json` + `.html` and a screenshot in `logs/`. If it prints `cards found: 0`, the selectors need fixing from that file.
+4. `python main.py run --only foundit --dry-run --cap 5`: searches and scores, clicks nothing.
+5. Set `enabled: true` and use a small `max_apply` for the first real run, then check Foundit > Applied jobs.
+
+Unknown situations are never guessed: extra questions go to `needs_manual`, company-site jobs to `external`, an unproven click to `unconfirmed`.

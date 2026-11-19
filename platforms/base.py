@@ -11,6 +11,7 @@ LOGIN_URLS = {
     "linkedin": "https://www.linkedin.com/login",
     "instahyre": "https://www.instahyre.com/login/",
     "indeed": "https://secure.indeed.com/auth?hl=en_IN&co=IN",
+    "foundit": "https://www.foundit.in/rio/login",
 }
 
 

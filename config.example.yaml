@@ -34,6 +34,8 @@ platforms:
   instahyre: { enabled: true, minutes: 10, max_apply: 25 }
   # Indeed 'Easily apply' jobs (company-site jobs go to the Antigravity hand-off). Not yet verified live: dry-run first.
   indeed: { enabled: true, minutes: 15, max_apply: 15 }
+  # Foundit: NOT verified live. Order: login foundit -> probe foundit -> run --only foundit --dry-run --cap 5, then turn on.
+  foundit: { enabled: false, minutes: 10, max_apply: 15 }
   # LinkedIn FORBIDS automation and detects it (restriction / ban risk) -> OFF by default.
   # Safe route: apply to LinkedIn jobs yourself, by hand, with your main resume.
   linkedin: { enabled: false, minutes: 10, max_apply: 8 }
