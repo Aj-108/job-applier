@@ -20,13 +20,18 @@ CREATE TABLE IF NOT EXISTS applications (
   matched_skills TEXT, resume_path TEXT, url TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_app_job ON applications(platform, job_id);
+-- jobs judged unsuitable (title / experience / stack / fit score), per version of the skip rules
+CREATE TABLE IF NOT EXISTS skip_cache (
+  platform TEXT, job_id TEXT, rules TEXT, reason TEXT, ts REAL,
+  PRIMARY KEY (platform, job_id, rules)
+);
 """
 
 # statuses: queued | unconfirmed | applied | dry_run | skipped | external | needs_manual | failed
 
 
 def connect(path=DB_PATH) -> sqlite3.Connection:
-    con = sqlite3.connect(path)
+    con = sqlite3.connect(path, timeout=30)          # platforms run in parallel threads, each with its own connection
     con.row_factory = sqlite3.Row
     con.executescript(SCHEMA)
     return con
@@ -45,9 +50,13 @@ def end_run(con, run_id: int, cost_inr: float = 0.0, notes: str = ""):
 
 
 def already_handled(con, platform: str, job_id: str) -> bool:
-    """True if we already applied (or dry-ran / sent to manual) this job in any earlier run."""
+    """True if this job never needs another look: applied / company site / needs you / unconfirmed in an earlier run, or
+    the site itself showed 'Applied' for it (applied by hand, or by an earlier run whose success was not recognised).
+    Permanent: unlike a rule-based skip it does not depend on the skip rules."""
     r = con.execute(
-        "SELECT 1 FROM applications WHERE platform=? AND job_id=? AND status IN ('applied','external','needs_manual','unconfirmed')",
+        """SELECT 1 FROM applications WHERE platform=? AND job_id=? AND (
+             status IN ('applied','external','needs_manual','unconfirmed')
+             OR (status='skipped' AND (reason='already applied' OR reason LIKE 'already applied (%'))) LIMIT 1""",
         (platform, job_id)).fetchone()
     return r is not None
 
@@ -103,9 +112,14 @@ def company_applied_count(con, company: str, *_ignored) -> int:
     return n
 
 
-def hard_skipped_before(con, platform, job_id) -> bool:
-    """True if this job was skipped in an earlier run for a reason that will not change (title, stack, experience)."""
-    r = con.execute("""SELECT 1 FROM applications WHERE platform=? AND job_id=? AND status='skipped' AND
-                       (reason LIKE 'blocked stack%' OR reason LIKE 'title%' OR reason LIKE 'experience too high%') LIMIT 1""",
-                    (platform, job_id)).fetchone()
+def hard_skipped_before(con, platform, job_id, rules: str) -> bool:
+    """True if this job was already judged unsuitable under the CURRENT skip rules (see config.rules_fingerprint).
+    When the rules change (skills_bank.yaml, min_fit_score, ...), old skips are re-checked once."""
+    r = con.execute("SELECT 1 FROM skip_cache WHERE platform=? AND job_id=? AND rules=? LIMIT 1",
+                    (platform, job_id, rules)).fetchone()
     return bool(r)
+
+
+def remember_skip(con, platform, job_id, rules: str, reason: str):
+    con.execute("INSERT OR REPLACE INTO skip_cache VALUES (?,?,?,?,?)", (platform, job_id, rules, reason, time.time()))
+    con.commit()

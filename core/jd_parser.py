@@ -5,7 +5,7 @@ from .config import load_skills, flat
 # canonical skill -> extra spellings that appear in job posts
 SYNONYMS = {
     "React.js": ["react", "reactjs", "react js", "react.js"],
-    "Next.js": ["next", "nextjs", "next js", "next.js"],
+    "Next.js": ["nextjs", "next js", "next.js"],          # not bare "next": "the next generation of ..." is not Next.js
     "Node.js": ["node", "nodejs", "node js", "node.js"],
     "Express.js": ["express", "expressjs", "express.js"],
     "TypeScript": ["typescript", "ts"],
@@ -18,7 +18,7 @@ SYNONYMS = {
     "MUI": ["mui", "material ui", "material-ui"],
     "HTML5": ["html", "html5"],
     "CSS3": ["css", "css3", "scss", "sass"],
-    "REST APIs": ["rest", "restful", "rest api", "rest apis", "restful api", "restful apis"],
+    "REST APIs": ["restful", "rest api", "rest apis", "restful api", "restful apis", "rest-api", "rest based"],  # not bare "rest"
     "JWT Authentication": ["jwt"],
     "Shopify Liquid": ["liquid", "shopify liquid"],
     "Mongoose": ["mongoose"],
@@ -34,7 +34,7 @@ SYNONYMS = {
     "Microservices": ["microservices", "microservice"],
     "Agile": ["agile"],
     "Scrum": ["scrum"],
-    "Responsive Design": ["responsive", "responsive design", "mobile-first"],
+    "Responsive Design": ["responsive design", "responsive web", "responsive ui", "responsive layouts", "mobile-first"],
     "Webhooks": ["webhook", "webhooks"],
     "Prisma": ["prisma"],
     "Remix": ["remix"],
@@ -64,7 +64,7 @@ def _vocab():
     if _CACHE:
         return _CACHE
     sk = load_skills()
-    core, adj, blocked = flat(sk["core"]), flat(sk["adjacent"]), sk["blocked"]
+    core, adj, blocked, soft = flat(sk["core"]), flat(sk["adjacent"]), sk["blocked"], sk.get("soft_blocked", [])
     spell: dict[str, list[str]] = {}
     for s in core + adj:
         spell.setdefault(s, [s.lower()])
@@ -73,19 +73,23 @@ def _vocab():
         spell.setdefault(s, syn)
     _CACHE.update(core=set(core), adj=set(adj), blocked=blocked,
                   pats={c: [_pat(t) for t in terms] for c, terms in spell.items()},
-                  bpats={b: _pat(b) for b in blocked})
+                  bpats={b: _pat(b) for b in blocked},          # HARD: skip / cost fit points
+                  spats={b: _pat(b) for b in soft})             # SOFT (cloud tools): reported, never penalised
     return _CACHE
 
 
 def extract_skills(text: str) -> dict:
-    """Return {'core': [...], 'adjacent': [...], 'blocked': {term: count}} found in text."""
+    """Return {'core': [...], 'adjacent': [...], 'core_hits': int, 'blocked': {term: count}, 'soft': [...]} found in text.
+    core_hits = how many times core skills are mentioned (same unit as the blocked counts, for a like-for-like comparison)."""
     v = _vocab()
     low = text or ""
-    core, adj = [], []
+    core, adj, core_hits = [], [], 0
     for canon, pats in v["pats"].items():
-        if any(p.search(low) for p in pats):
+        n = max(len(p.findall(low)) for p in pats)       # max, not sum: "react" and "react.js" overlap on the same words
+        if n:
             if canon in v["core"]:
                 core.append(canon)
+                core_hits += n
             elif canon in v["adj"]:
                 adj.append(canon)
     blocked = {}
@@ -93,7 +97,8 @@ def extract_skills(text: str) -> dict:
         n = len(p.findall(low))
         if n:
             blocked[b] = n
-    return {"core": core, "adjacent": adj, "blocked": blocked}
+    soft = [b for b, p in v["spats"].items() if p.search(low)]
+    return {"core": core, "adjacent": adj, "core_hits": core_hits, "blocked": blocked, "soft": soft}
 
 
 def is_blocked_stack(title: str, description: str) -> tuple[bool, str]:
@@ -103,8 +108,8 @@ def is_blocked_stack(title: str, description: str) -> tuple[bool, str]:
         if p.search(title or ""):
             return True, f"title mentions blocked stack: {b}"
     found = extract_skills(f"{title}\n{description}")
-    bsum = sum(found["blocked"].values())
-    csum = len(found["core"])
+    bsum = sum(found["blocked"].values())           # mentions of foreign stacks ...
+    csum = found["core_hits"]                       # ... against mentions of our stack (was: distinct skills - not comparable)
     if bsum >= 4 and bsum > csum:
         top = max(found["blocked"], key=found["blocked"].get)
         return True, f"main stack looks like {top}"

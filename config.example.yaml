@@ -5,6 +5,8 @@ model: claude-opus-5-5 # fallback only - the real model / effort / API key live 
 min_fit_score: 55 # 0-100; jobs below this are skipped
 max_experience_years: 4 # skip jobs asking for more than this (min exp)
 run_minutes: 60
+# chrome = your real Google Chrome (own profile in .browser/chrome; "Sign in with Google" works) | playwright = bundled Chromium
+browser: chrome
 max_per_company: 1      # ONE application per company, ever (Naukri + Instahyre + browser agent combined)
 excel_file: Applied_Jobs.xlsx   # every APPLIED job, written by the tool AND by Antigravity
 
@@ -25,17 +27,64 @@ locations: # remote first, then Punjab and Delhi NCR
   - Mohali
   - Chandigarh
 
-# time (minutes) and max applications per platform in one run
+# time (minutes) and max applications per platform in one run. Platforms run in this order; minutes one platform
+# does not use (finished early, not logged in, blocked) are added to the next one. Keep the total = run_minutes.
 platforms:
-  naukri: { enabled: true, minutes: 30, max_apply: 40 }
-  instahyre: { enabled: true, minutes: 15, max_apply: 25 }
+  naukri: { enabled: true, minutes: 35, max_apply: 40 }
+  instahyre: { enabled: true, minutes: 10, max_apply: 25 }
+  # Indeed 'Easily apply' jobs (company-site jobs go to the Antigravity hand-off). Not yet verified live: dry-run first.
+  indeed: { enabled: true, minutes: 15, max_apply: 15 }
   # LinkedIn FORBIDS automation and detects it (restriction / ban risk) -> OFF by default.
   # Safe route: apply to LinkedIn jobs yourself, by hand, with your main resume.
   linkedin: { enabled: false, minutes: 10, max_apply: 8 }
 
+# run all platforms at the same time (one Chrome, one tab per site, each with its own pacing).
+# false = one after another, using the per-platform minutes above.
+parallel: true
+
+# After every real run, settle "unconfirmed" jobs from these sites' own Applied jobs lists (read-only). [] = off.
+verify_after_run: [naukri]
+
+# Google Sheet mirror of Applied_Jobs.xlsx: one tab per day + an "All Applied" master tab. Off by default.
+# Setup (one time, free): console.cloud.google.com -> new project -> enable "Google Sheets API" -> Credentials ->
+# Create Credentials -> Service Account -> Keys -> Add key (JSON); save that file here as service_account_file (it is
+# a credential: never commit it - .gitignore already excludes service-account*.json). Create a Google Sheet, open its
+# Share dialog and add the service account's email (ends ...iam.gserviceaccount.com) as Editor. sheet_id is the long
+# id in the Sheet's URL: docs.google.com/spreadsheets/d/<sheet_id>/edit
+google_sheet:
+  enabled: false
+  sheet_id: ""
+  service_account_file: service-account.json
+  master_tab: "All Applied"
+
+# Saved preferences (asked once, used for every form: Naukri / Indeed questions and company-site forms)
+preferences:
+  salary_unit_default: rupees     # a salary field with NO unit: rupees (780000) | lpa (7.8) | ask (skip the job)
+  consent_checkbox: true          # tick required accuracy / privacy-policy / terms boxes (never marketing / newsletter / WhatsApp opt-ins)
+  cover_letter_ai: true           # write a cover letter when a form or email needs one (facts + job description only, see ARCHITECTURE)
+  email_applications: true        # apply by email when a company's only route is an email address (python main.py email ...)
+
+email:
+  max_per_day: 15                 # application emails per day
+
+# Your own answers to application questions the tool cannot answer from the profile below.
+# `python main.py questions` lists the questions that sent jobs to needs_manual. Each entry: a regex that matches the
+# question (case-insensitive) and the TRUE answer. Only write answers that are true for you - they are submitted as-is.
+answers:
+  - match: "own (a )?laptop|personal laptop|do you have.*laptop"
+    answer: "Yes"
+  - match: "workplace model|work model|work mode|comfortable.*(onsite|on-site|hybrid|remote|work from office)"
+    answer: "Yes"                  # any workplace model is fine (change to your own preference)
+  - match: "(available|comfortable|ok|okay|fine|willing).*(shift|night|timing|rotational)|shift.*(available|comfortable)"
+    answer: "Yes"                  # any shift is fine (change to your own preference)
+#  - match: "join immediately|immediate joiner|joining within"
+#    answer: "No"
+#  - match: "comfortable .*(onsite|on-site|work from office)"
+#    answer: "Yes"
+
 pacing:
   action_delay: [3, 9] # seconds between clicks/typing
-  apply_delay: [30, 90] # seconds between two applications
+  apply_delay: [25, 50] # min seconds between two Apply clicks; reading / scoring the next jobs happens during this wait
 
 # answers used in application forms (keep these TRUE - they are submitted on your behalf)
 profile:
@@ -43,10 +92,12 @@ profile:
   email: you@example.com 
   phone: "0000000000" 
   total_experience_years: 0 
-  current_ctc_lpa: 0 # e.g. 6
-  expected_ctc_lpa: 0 # e.g. 10
+  current_ctc_lpa: CHANGE_ME # in LPA, e.g. 6   (CHANGE_ME = never answered; such questions go to needs_manual)
+  expected_ctc_lpa: CHANGE_ME # in LPA, e.g. 10
   notice_period_days: 30 # e.g. 30
-  current_location: City # e.g. Delhi
+  current_location: CHANGE_ME # e.g. Delhi
+  current_title: CHANGE_ME   # e.g. Software Developer
+  current_company: CHANGE_ME # e.g. Acme Pvt Ltd
   willing_to_relocate: true
   work_authorized_india: true
   skill_years: # years of experience per skill (used for form questions)

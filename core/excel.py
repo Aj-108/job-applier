@@ -34,6 +34,21 @@ def _applied_rows(con):
     return [dict(r) for r in con.execute("SELECT * FROM applications WHERE status='applied' ORDER BY ts, id")]
 
 
+def row_values(r: dict) -> list:
+    """One applied-job row, in COLUMNS order, as plain values (no Excel formatting). Shared with core/sheets.py so the
+    two exports never drift apart. '#' (position) is left as None - callers number it themselves."""
+    dt = datetime.fromtimestamp(r["ts"])
+    agent = "added via Excel" in (r["reason"] or "")
+    src = (r["reason"] or "").split("by ", 1)[-1].split(":")[0].strip().title() if agent else "Tool"
+    via = ("Company website (browser agent)" if (agent or (r["reason"] or "").startswith("applied on the company site"))
+           else ("Naukri" if r["platform"] == "naukri" else "Instahyre" if r["platform"] == "instahyre" else r["platform"].title()))
+    return [None, dt.date().isoformat(), dt.time().replace(microsecond=0).isoformat(), r["platform"], via, r["company"], r["title"],
+            r["location"], bucket(r["location"], r["remote"]), "Remote" if r["remote"] else "Onsite/Hybrid", r["exp_text"] or "",
+            round(r["fit_score"]) if r["fit_score"] is not None else None, (r["matched_skills"] or "").replace(",", ", "),
+            Path(r["resume_path"]).name if r["resume_path"] else "", r["url"] or "",
+            (r["reason"] or "") if not agent else (r["reason"] or "").split(":", 1)[-1].strip(), src, _key(r["platform"], r["job_id"])]
+
+
 # ------------------------------------------------------------------ Excel -> database
 def read_rows(path: Path) -> list[dict]:
     if not path.exists():
@@ -73,7 +88,9 @@ def _ts(r) -> float:
 def ingest(con, path: Path | None = None) -> int:
     """Load rows that exist in the Excel but not in the database (added by a browser agent or by hand)."""
     path = path or excel_path()
-    known_keys = {_key(r["platform"], r["job_id"]) for r in _applied_rows(con)}
+    # a row the TOOL wrote carries its key: if the tracker knows that job under ANY status (it may have been corrected to
+    # external / failed since), the tracker wins and the old Excel row must not come back as "added by hand"
+    known_keys = {_key(r["platform"], r["job_id"]) for r in con.execute("SELECT platform, job_id FROM applications")}
     known_pairs = {(norm_company(r["company"]), (r["title"] or "").lower().strip()) for r in _applied_rows(con)}
     added = 0
     for r in read_rows(path):
@@ -116,17 +133,9 @@ def export(con, path: Path | None = None) -> Path:
     for c in ws[1]:
         c.font, c.fill, c.alignment = Font(bold=True, color="FFFFFF"), head_fill, Alignment(vertical="center", wrap_text=True)
     for i, r in enumerate(rows, 1):
-        dt = datetime.fromtimestamp(r["ts"])
-        agent = "added via Excel" in (r["reason"] or "")
-        src = (r["reason"] or "").split("by ", 1)[-1].split(":")[0].strip().title() if agent else "Tool"
-        via = "Company website (browser agent)" if agent else ("Naukri" if r["platform"] == "naukri" else
-              "Instahyre" if r["platform"] == "instahyre" else r["platform"].title())
-        ws.append([i, dt.date(), dt.time().replace(microsecond=0), r["platform"], via, r["company"], r["title"], r["location"],
-                   bucket(r["location"], r["remote"]), "Remote" if r["remote"] else "Onsite/Hybrid", r["exp_text"] or "",
-                   round(r["fit_score"]) if r["fit_score"] is not None else None,
-                   (r["matched_skills"] or "").replace(",", ", "), Path(r["resume_path"]).name if r["resume_path"] else "",
-                   r["url"], (r["reason"] or "") if not agent else (r["reason"] or "").split(":", 1)[-1].strip(), src,
-                   _key(r["platform"], r["job_id"])])
+        vals = row_values(r)
+        vals[0], vals[1], vals[2] = i, datetime.fromisoformat(vals[1]).date(), datetime.strptime(vals[2], "%H:%M:%S").time()
+        ws.append(vals)
         link = ws.cell(row=i + 1, column=15)
         if r["url"]:
             link.hyperlink, link.font = r["url"], Font(color="0563C1", underline="single")

@@ -11,7 +11,7 @@ import os
 import re
 import time
 from pydantic import BaseModel
-from .config import load_skills, flat, ai_settings
+from .config import load_skills, flat, ai_settings, never_claim
 from .jd_parser import extract_skills, norm
 
 PRICE_IN, PRICE_OUT, INR = 4.0, 20.0, 88.0     # claude-opus-5-5 $/MTok, USD->INR
@@ -62,7 +62,7 @@ def _allowed(sk):
 
 def _blocked_hits(text: str, sk) -> list[str]:
     hits = []
-    for b in sk["blocked"]:
+    for b in never_claim(sk):
         if re.search(r"(?<![\w.+#])" + re.escape(b) + r"(?![\w+#])", text, re.I):
             hits.append(b)
     return hits
@@ -163,7 +163,7 @@ def _payload(orig, jd_text, sk):
     return ("ORIGINAL RESUME\nheadline: %s\nsummary: %s\nskills: %s\nbullets (paragraph_id: text): %s\n\n"
             "ALLOWED ADJACENT SKILLS: %s\nBLOCKED (never mention): %s\n\nJOB DESCRIPTION:\n%s" % (
                 orig["headline"], orig["summary"], orig["skills"], dict(orig["bullets"]),
-                flat(sk["adjacent"]), sk["blocked"], jd_text[:6000]))
+                flat(sk["adjacent"]), never_claim(sk), jd_text[:6000]))
 
 
 def _result(o: TailoredOut, engine: str, cost: float) -> dict:

@@ -16,7 +16,7 @@ adjacent:
   integrations: [Payment Integrations, Email Integrations, SMS Integrations]
   tools: [Code Reviews, Agile]
 
-# blocked: never appear in the tailored resume, and jobs whose MAIN stack is one of these are skipped
+# blocked (HARD): never claimed; a title naming one is skipped, and each one asked for in the JD costs fit points
 blocked:
   - Django
   - Flask
@@ -42,11 +42,6 @@ blocked:
   - Swift
   - Golang
   - Ruby on Rails
-  - Kubernetes
-  - Terraform
-  - AWS
-  - Azure
-  - GCP
   - Machine Learning
   - Data Science
   - TensorFlow
@@ -56,3 +51,18 @@ blocked:
   - WordPress
   - Android
   - iOS
+  - Dynamics 365
+  - Microsoft Dynamics
+  - AEM
+  - Adobe Experience Manager
+  - Ruby
+  - ROR
+
+# soft_blocked: never claimed either, but common 'nice to have' tools in MERN / Next.js jobs.
+# They do NOT skip a job and do NOT cost fit points ("Full Stack Developer (React, Node, AWS)" is still a match).
+soft_blocked:
+  - AWS
+  - Azure
+  - GCP
+  - Kubernetes
+  - Terraform
